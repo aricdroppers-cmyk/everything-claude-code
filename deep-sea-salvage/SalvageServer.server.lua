@@ -861,6 +861,12 @@ end)
 
 local Sessions = {}
 local currentEvent = nil
+local currentWeather = nil -- a Config.Weather.types entry while weather is active
+
+local function notify(player, payload)
+	Notify:FireClient(player, payload)
+end
+
 
 local function freshSeason()
 	return { id = Config.Season.id, xp = 0, prestige = 0, premium = false, mystic = false, claimed = {} }
@@ -896,6 +902,7 @@ local function defaultData()
 		equippedCharms = {}, -- charm ids
 		login = { claimedDay = -1, streak = 0, best = 0 }, -- daily login streak
 		starterGiven = false,
+		groupRewardClaimed = false,
 		tutorial = { step = 1, skipped = false },
 	}
 end
@@ -1046,19 +1053,29 @@ local function isEquipped(data, uid)
 	return table.find(data.equipped, uid) ~= nil
 end
 
-local function equippedPetIds(data)
-	local ids = {}
+-- equipped pets as { id = ..., mutation = ... }
+local function equippedPets(data)
+	local list = {}
 	for _, uid in ipairs(data.equipped) do
 		local pet = findPet(data, uid)
 		if pet then
-			table.insert(ids, pet.id)
+			table.insert(list, { id = pet.id, mutation = pet.mutation })
 		end
 	end
-	return ids
+	return list
+end
+
+-- "Clownfish:Golden,Octopus" (sent to every client so they can draw your pets)
+local function equippedPetString(data)
+	local parts = {}
+	for _, pet in ipairs(equippedPets(data)) do
+		table.insert(parts, pet.mutation and (pet.id .. ":" .. pet.mutation) or pet.id)
+	end
+	return table.concat(parts, ",")
 end
 
 local function petBonus(data)
-	return Config.PetBonusTotals(equippedPetIds(data))
+	return Config.PetBonusTotals(equippedPets(data))
 end
 
 local function hasPass(session, key)
@@ -1075,6 +1092,66 @@ end
 
 local function charmSlots(session)
 	return Config.CharmSlots + (hasPass(session, "VIP") and 1 or 0)
+end
+
+local function maxPets(session)
+	return hasPass(session, "BigTank") and Config.BigTankPets or Config.MaxPets
+end
+
+local function eggCapacity(session)
+	return Config.EggStorage * (hasPass(session, "BigStorage") and 2 or 1)
+end
+
+local function spareCapacity(session)
+	return Config.SpareStorage * (hasPass(session, "BigStorage") and 2 or 1)
+end
+
+local function countEggs(data)
+	local n = 0
+	for _, count in pairs(data.eggs) do
+		n += count
+	end
+	return n
+end
+
+local function countSpares(data)
+	local n = 0
+	for _, owned in pairs(data.parts) do
+		if owned > 1 then
+			n += owned - 1
+		end
+	end
+	return n
+end
+
+-- An egg found in the sea or from a creature. If storage is full it's sold.
+local function findEgg(session, eggId)
+	local data = session.data
+	if countEggs(data) >= eggCapacity(session) then
+		local value = Config.EggSellValue[eggId] or 100
+		data.coins += value
+		notify(session.player, { kind = "storageFull", what = "eggs", egg = eggId, coins = value })
+		return false
+	end
+	data.eggs[eggId] = (data.eggs[eggId] or 0) + 1
+	notify(session.player, { kind = "egg", egg = eggId })
+	return true
+end
+
+-- Keep a spare fragment, unless auto-sell is on or spare storage is full
+local function keepSpare(session)
+	local data = session.data
+	if data.autoSell then
+		return false
+	end
+	if countSpares(data) >= spareCapacity(session) then
+		if not session.warnedSpares then
+			session.warnedSpares = true
+			notify(session.player, { kind = "storageFull", what = "spares" })
+		end
+		return false
+	end
+	return true
 end
 
 -- Every bonus in the game, combined in one place
@@ -1122,7 +1199,7 @@ local function getMultipliers(session)
 		luck = luck,
 		xp = xp,
 		hull = pets.hull + charms.hull,
-		damage = 1 + rebirth.damage + charms.damage,
+		damage = (1 + rebirth.damage + charms.damage) * (hasPass(session, "DoubleDamage") and 2 or 1),
 		maxHealth = Config.PlayerBaseHealth + data.level * Config.HealthPerLevel + rebirth.health,
 	}
 end
@@ -1137,7 +1214,7 @@ local function updatePublicInfo(session)
 	local data = session.data
 	player:SetAttribute("Level", data.level)
 	player:SetAttribute("Rebirths", data.rebirths)
-	player:SetAttribute("EquippedPets", table.concat(equippedPetIds(data), ","))
+	player:SetAttribute("EquippedPets", equippedPetString(data))
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if leaderstats then
 		leaderstats.Level.Value = data.level
@@ -1273,6 +1350,11 @@ local function pushState(session)
 		pets = data.pets,
 		equipped = data.equipped,
 		maxEquipped = maxEquipped(session),
+		maxPets = maxPets(session),
+		eggCapacity = eggCapacity(session),
+		spareCapacity = spareCapacity(session),
+		groupClaimed = data.groupRewardClaimed,
+		groupId = Config.GroupId,
 		charms = data.charms,
 		equippedCharms = data.equippedCharms,
 		charmSlots = charmSlots(session),
@@ -1296,9 +1378,6 @@ local function pushState(session)
 	})
 end
 
-local function notify(player, payload)
-	Notify:FireClient(player, payload)
-end
 
 local function announce(text, color)
 	Notify:FireAllClients({ kind = "announce", text = text, color = color })
@@ -1371,6 +1450,10 @@ local function rollHaul(session, zoneIndex, subDef)
 		table.insert(fragments, { ship = pick.ship.id, part = pick.part, rarity = rarity })
 		best = math.max(best, rarity)
 	end
+	local mutation = nil
+	if currentWeather and rng:NextNumber() < currentWeather.crateChance then
+		mutation = currentWeather.mutation
+	end
 	local egg = nil
 	if rng:NextNumber() < Config.EggChance then
 		local eggDef = Config.EggForZone(zoneIndex)
@@ -1378,9 +1461,10 @@ local function rollHaul(session, zoneIndex, subDef)
 	end
 	return {
 		fragments = fragments,
-		coins = math.floor(zone.coins * coinMultiplier(session)),
+		coins = math.floor(zone.coins * coinMultiplier(session) * (mutation and Config.Mutations[mutation].coinMult or 1)),
 		best = best,
 		egg = egg,
+		mutation = mutation,
 		zone = zoneIndex,
 	}
 end
@@ -1464,11 +1548,11 @@ local function collectCrate(session, index)
 		if isNew then
 			questProgress(session, "newFragments", 1)
 		end
-		if isNew or not data.autoSell then
+		if isNew or keepSpare(session) then
 			-- keep it (first copy restores ships, extra copies are spares for trading)
 			data.parts[key] = owned + 1
 		else
-			sold = Config.Rarities[frag.rarity].sellValue
+			sold = Config.Rarities[frag.rarity].sellValue * (haul.mutation and Config.Mutations[haul.mutation].coinMult or 1)
 			total += sold
 		end
 		notify(session.player, {
@@ -1489,8 +1573,10 @@ local function collectCrate(session, index)
 		end
 	end
 	if haul.egg then
-		data.eggs[haul.egg] = (data.eggs[haul.egg] or 0) + 1
-		notify(session.player, { kind = "egg", egg = haul.egg })
+		findEgg(session, haul.egg)
+	end
+	if haul.mutation then
+		notify(session.player, { kind = "mutatedHaul", mutation = haul.mutation, coins = total })
 	end
 	if rng:NextNumber() < Config.CharmChanceHaul then
 		giveRandomCharm(session)
@@ -1512,6 +1598,23 @@ local function spawnCrate(session, index)
 	local berth = session.bay.berths[index]
 	local rarityDef = Config.Rarities[entry.haul.best]
 	local crate = buildCrate(entry.haul.best, berth.crateCF, session.bay.folder)
+	if entry.haul.mutation then
+		local mutation = Config.Mutations[entry.haul.mutation]
+		for _, band in ipairs(crate:GetChildren()) do
+			if band:IsA("BasePart") then
+				band.Color = mutation.color
+			end
+		end
+		local aura = Instance.new("ParticleEmitter")
+		aura.Color = ColorSequence.new(mutation.color)
+		aura.LightEmission = 1
+		aura.Rate = 25
+		aura.Speed = NumberRange.new(2, 6)
+		aura.SpreadAngle = Vector2.new(180, 180)
+		aura.Size = NumberSequence.new(0.5, 0)
+		aura.Parent = crate
+		addBillboard(crate, mutation.name:upper() .. " x" .. mutation.coinMult, mutation.color, 3.2, 70, 180)
+	end
 	if entry.haul.egg then
 		local eggDef = Config.GetEgg(entry.haul.egg)
 		local egg = makePart({
@@ -1665,10 +1768,10 @@ local function rollPet(eggId)
 	return pool[#pool]
 end
 
-local function givePet(data, petId)
+local function givePet(data, petId, mutation)
 	local uid = data.nextPetUid
 	data.nextPetUid += 1
-	table.insert(data.pets, { uid = uid, id = petId })
+	table.insert(data.pets, { uid = uid, id = petId, mutation = mutation })
 	return uid
 end
 
@@ -1678,8 +1781,8 @@ local function hatchEgg(session, eggId)
 	if not eggDef or (data.eggs[eggId] or 0) < 1 then
 		return
 	end
-	if #data.pets >= Config.MaxPets then
-		notify(session.player, { kind = "error", text = "Your pet tank is full (" .. Config.MaxPets .. "). Release a pet first." })
+	if #data.pets >= maxPets(session) then
+		notify(session.player, { kind = "error", text = "Your pet tank is full (" .. maxPets(session) .. "). Release a pet or get a Bigger Pet Tank." })
 		return
 	end
 	local wallet = eggDef.currency == "Pearls" and "pearls" or "coins"
@@ -1731,7 +1834,7 @@ local function equipBest(session)
 	local data = session.data
 	local sorted = table.clone(data.pets)
 	table.sort(sorted, function(a, b)
-		return Config.PetScore(a.id) > Config.PetScore(b.id)
+		return Config.PetScore(a.id, a.mutation) > Config.PetScore(b.id, b.mutation)
 	end)
 	data.equipped = {}
 	for i = 1, math.min(maxEquipped(session), #sorted) do
@@ -1759,7 +1862,7 @@ local function releasePet(session, uid)
 	end
 	table.remove(data.pets, index)
 	local def = Config.GetPet(pet.id)
-	local value = Config.PetRarities[def.rarity].releaseValue
+	local value = Config.PetRarities[def.rarity].releaseValue * (pet.mutation and Config.Mutations[pet.mutation].coinMult or 1)
 	data.coins += value
 	notify(session.player, { kind = "released", pet = pet.id, coins = value })
 	updatePublicInfo(session)
@@ -1811,7 +1914,7 @@ local function offerItems(session, offer)
 	for uid in pairs(offer.pets) do
 		local pet = findPet(session.data, uid)
 		if pet then
-			table.insert(items, { kind = "pet", id = uid, petId = pet.id, amount = 1 })
+			table.insert(items, { kind = "pet", id = uid, petId = pet.id, mutation = pet.mutation, amount = 1 })
 		end
 	end
 	for eggId, amount in pairs(offer.eggs) do
@@ -1911,8 +2014,8 @@ local function executeTrade(trade)
 		return
 	end
 	local petsOutA, petsOutB = countKeys(oa.pets), countKeys(ob.pets)
-	if #sa.data.pets - petsOutA + petsOutB > Config.MaxPets or #sb.data.pets - petsOutB + petsOutA > Config.MaxPets then
-		endTrade(trade, "Trade cancelled: a pet tank would be over " .. Config.MaxPets .. " pets.", Color3.fromRGB(255, 95, 95))
+	if #sa.data.pets - petsOutA + petsOutB > maxPets(sa) or #sb.data.pets - petsOutB + petsOutA > maxPets(sb) then
+		endTrade(trade, "Trade cancelled: someone's pet tank would be too full.", Color3.fromRGB(255, 95, 95))
 		return
 	end
 
@@ -1934,7 +2037,7 @@ local function executeTrade(trade)
 		for uid in pairs(offer.pets) do
 			local pet, index = findPet(from.data, uid)
 			table.remove(from.data.pets, index)
-			givePet(to.data, pet.id)
+			givePet(to.data, pet.id, pet.mutation)
 		end
 		return shipsTouched
 	end
@@ -2191,6 +2294,64 @@ local function claimDaily(session)
 		table.insert(given, r)
 	end
 	notify(session.player, { kind = "dailyClaimed", streak = status.streak, day = dayIndex, rewards = given, multiplier = mult })
+	pushState(session)
+	task.spawn(saveData, session)
+end
+
+local GroupService = game:GetService("GroupService")
+
+-- Is the player in the game's group? GetGroupsAsync isn't cached, so it works
+-- even if they joined the group a minute ago without rejoining the game.
+local function inGroup(player)
+	if Config.GroupId == 0 then
+		return RunService:IsStudio() -- not set up yet: free to test in Studio
+	end
+	local ok, groups = pcall(function()
+		return GroupService:GetGroupsAsync(player.UserId)
+	end)
+	if ok and type(groups) == "table" then
+		for _, group in ipairs(groups) do
+			if group.Id == Config.GroupId then
+				return true
+			end
+		end
+	end
+	local ok2, member = pcall(function()
+		return player:IsInGroup(Config.GroupId)
+	end)
+	return ok2 and member == true
+end
+
+local function claimGroupReward(session)
+	local data = session.data
+	if data.groupRewardClaimed then
+		notify(session.player, { kind = "error", text = "You already claimed the group reward. Thanks for joining!" })
+		return
+	end
+	if not inGroup(session.player) then
+		notify(session.player, { kind = "error", text = Config.GroupId == 0 and "The group reward isn't set up yet."
+			or "Join the group first (on the game's page), then press Claim again!" })
+		return
+	end
+	data.groupRewardClaimed = true
+	local given = {}
+	for _, reward in ipairs(Config.GroupReward) do
+		local r = table.clone(reward)
+		if r.perLevel then
+			r.amount = r.amount * data.level
+			r.perLevel = nil
+		end
+		if r.kind == "charmId" then
+			data.charms[r.id] = (data.charms[r.id] or 0) + 1
+			if #data.equippedCharms < charmSlots(session) and not table.find(data.equippedCharms, r.id) then
+				table.insert(data.equippedCharms, r.id)
+			end
+		else
+			giveReward(session, r)
+		end
+		table.insert(given, r)
+	end
+	notify(session.player, { kind = "groupReward", rewards = given })
 	pushState(session)
 	task.spawn(saveData, session)
 end
@@ -3162,7 +3323,7 @@ local function giveKillFragment(session, zoneIndex)
 	if isNew then
 		questProgress(session, "newFragments", 1)
 	end
-	if isNew or not data.autoSell then
+	if isNew or keepSpare(session) then
 		data.parts[key] = owned + 1
 	else
 		sold = Config.Rarities[rarity].sellValue
@@ -3207,8 +3368,7 @@ local function killEnemy(enemy)
 			if rng:NextNumber() < (def.eggChance or Config.EnemyEggChance) then
 				local egg = Config.EggForZone(zoneIndex)
 				if egg then
-					data.eggs[egg.id] = (data.eggs[egg.id] or 0) + 1
-					notify(player, { kind = "egg", egg = egg.id })
+					findEgg(session, egg.id)
 				end
 			end
 			notify(player, { kind = "kill", enemy = def.name, coins = coins, pearls = def.pearls, boss = def.boss })
@@ -4113,6 +4273,11 @@ Action.OnServerEvent:Connect(function(player, action, arg1, arg2)
 		doRebirth(session, false)
 	elseif action == "ClaimDaily" then
 		claimDaily(session)
+	elseif action == "ClaimGroupReward" then
+		if os.clock() - (session.lastGroupCheck or -100) > 3 then -- the group check is a web request
+			session.lastGroupCheck = os.clock()
+			claimGroupReward(session)
+		end
 	elseif action == "SkipTutorial" then
 		data.tutorial.skipped = true
 		pushState(session)
@@ -4430,6 +4595,79 @@ task.spawn(function()
 		task.wait(Config.EventInterval)
 		if #Players:GetPlayers() > 0 then
 			runEvent(eventOrder[rng:NextInteger(1, #eventOrder)])
+		end
+	end
+end)
+
+
+---------------------------------------------------------------------------
+-- WEATHER: crates and pets can mutate while it lasts
+---------------------------------------------------------------------------
+local function pickWeather()
+	local total = 0
+	for _, w in ipairs(Config.Weather.types) do
+		total += w.weight
+	end
+	local roll = rng:NextNumber() * total
+	for _, w in ipairs(Config.Weather.types) do
+		roll -= w.weight
+		if roll <= 0 then
+			return w
+		end
+	end
+	return Config.Weather.types[1]
+end
+
+local function mutatePets(weather)
+	local mutation = Config.Mutations[weather.mutation]
+	for _, session in pairs(Sessions) do
+		if session.loaded and session.active then
+			local changed = false
+			for _, uid in ipairs(session.data.equipped) do
+				local pet = findPet(session.data, uid)
+				local current = pet and pet.mutation and Config.Mutations[pet.mutation]
+				if pet and (not current or current.tier < mutation.tier) and rng:NextNumber() < weather.petChance then
+					pet.mutation = weather.mutation
+					changed = true
+					local def = Config.GetPet(pet.id)
+					notify(session.player, { kind = "petMutated", pet = pet.id, mutation = weather.mutation })
+					announce(session.player.DisplayName .. "'s " .. def.name .. " became " .. mutation.name:upper() .. "!", mutation.color)
+				end
+			end
+			if changed then
+				updatePublicInfo(session)
+				pushState(session)
+			end
+		end
+	end
+end
+
+local function runWeather(weather)
+	currentWeather = weather
+	local endTime = now() + Config.Weather.duration
+	remotes:SetAttribute("Weather", weather.id)
+	remotes:SetAttribute("WeatherEnd", endTime)
+	announce(weather.name .. "! " .. weather.desc, Config.Mutations[weather.mutation].color)
+	local nextPetRoll = os.clock() + Config.Weather.petCheckEvery
+	while now() < endTime do
+		task.wait(1)
+		if os.clock() >= nextPetRoll then
+			nextPetRoll = os.clock() + Config.Weather.petCheckEvery
+			mutatePets(weather)
+		end
+	end
+	currentWeather = nil
+	remotes:SetAttribute("Weather", "")
+	remotes:SetAttribute("WeatherEnd", 0)
+end
+
+remotes:SetAttribute("Weather", "")
+remotes:SetAttribute("WeatherEnd", 0)
+task.spawn(function()
+	while true do
+		task.wait(Config.Weather.interval)
+		if #Players:GetPlayers() > 0 then
+			runWeather(pickWeather())
 		end
 	end
 end)

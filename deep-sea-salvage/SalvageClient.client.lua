@@ -744,7 +744,7 @@ local function renderLogbook()
 	text({
 		Size = UDim2.new(0.4, 0, 0, 20),
 		Position = UDim2.new(0, 14, 0.5, -10),
-		Text = spares .. " spare fragments (tradeable)",
+		Text = string.format("%d / %d spare fragments", spares, state.spareCapacity),
 		Font = Enum.Font.GothamMedium,
 		MaxTextSize = 15,
 		Parent = toolbar,
@@ -887,6 +887,24 @@ end
 local Models = require(ReplicatedStorage:WaitForChild("SalvageModels"))
 local buildPet = Models.Build
 
+-- A mutated pet looks tinted in its mutation's color and glows
+local function mutatedDef(def, mutationId)
+	local mutation = mutationId and Config.Mutations[mutationId]
+	if not mutation then
+		return def
+	end
+	local copy = table.clone(def)
+	copy.color = def.color:Lerp(mutation.color, 0.55)
+	copy.accent = mutation.color
+	copy.glow = true
+	return copy
+end
+
+local function petDisplayName(def, mutationId)
+	local mutation = mutationId and Config.Mutations[mutationId]
+	return mutation and (mutation.name .. " " .. def.name) or def.name
+end
+
 ---------------------------------------------------------------------------
 -- PET FOLLOWERS (everyone's equipped pets swim behind them)
 ---------------------------------------------------------------------------
@@ -907,10 +925,11 @@ local function refreshFollowers(p)
 	end
 	entry = { key = key, models = {} }
 	followers[p] = entry
-	for petId in string.gmatch(key, "[^,]+") do
+	for piece in string.gmatch(key, "[^,]+") do
+		local petId, mutationId = string.match(piece, "^([^:]+):?(.*)$")
 		local def = Config.GetPet(petId)
 		if def then
-			local model = buildPet(def, 0.9)
+			local model = buildPet(mutatedDef(def, mutationId ~= "" and mutationId or nil), 0.9)
 			model.Parent = petFolder
 			table.insert(entry.models, model)
 		end
@@ -1378,7 +1397,7 @@ local function renderPets()
 		return
 	end
 	panelTitle.Text = "PET TANK"
-	panelSubtitle.Text = string.format("Pets %d/%d  |  Equipped %d/%d", #state.pets, Config.MaxPets, #state.equipped, state.maxEquipped)
+	panelSubtitle.Text = string.format("Pets %d/%d  |  Equipped %d/%d", #state.pets, state.maxPets, #state.equipped, state.maxEquipped)
 
 	-- bonus summary
 	local summary = card(52, 1, THEME.gold)
@@ -1411,7 +1430,11 @@ local function renderPets()
 	end)
 
 	-- eggs
-	sectionTitle("EGGS", 2)
+	local eggTotal = 0
+	for _, count in pairs(state.eggs) do
+		eggTotal += count
+	end
+	sectionTitle(string.format("EGGS  %d/%d%s", eggTotal, state.eggCapacity, eggTotal >= state.eggCapacity and "  (FULL: new eggs sell for coins)" or ""), 2)
 	local hasEggs = false
 	local eggGrid = gridSection(3, UDim2.new(0, 150, 0, 196))
 	for i, eggDef in ipairs(Config.Eggs) do
@@ -1536,7 +1559,7 @@ local function renderPets()
 		if ea ~= eb then
 			return ea
 		end
-		return Config.PetScore(a.id) > Config.PetScore(b.id)
+		return Config.PetScore(a.id, a.mutation) > Config.PetScore(b.id, b.mutation)
 	end)
 	for i, pet in ipairs(sorted) do
 		local def = Config.GetPet(pet.id)
@@ -1545,12 +1568,26 @@ local function renderPets()
 			local equipped = table.find(state.equipped, pet.uid) ~= nil
 			local box = new("Frame", { BackgroundColor3 = THEME.card, LayoutOrder = i, Parent = petGrid })
 			corner(box, 10)
-			stroke(box, rarity.color, equipped and 3 or 1.5, equipped and 0 or 0.5)
-			petViewport(box, def, UDim2.new(1, 0, 0, 96), UDim2.new(0, 0, 0, 0), false)
+			local mutation = pet.mutation and Config.Mutations[pet.mutation]
+			stroke(box, mutation and mutation.color or rarity.color, (equipped or mutation) and 3 or 1.5, (equipped or mutation) and 0 or 0.5)
+			if mutation then
+				local tag = new("Frame", {
+					AnchorPoint = Vector2.new(1, 0),
+					Position = UDim2.new(1, -6, 0, 6),
+					Size = UDim2.new(0, 70, 0, 18),
+					BackgroundColor3 = mutation.color,
+					ZIndex = 2,
+					Parent = box,
+				})
+				corner(tag, 9)
+				text({ Size = UDim2.fromScale(1, 1), Text = mutation.name:upper(), Font = Enum.Font.GothamBlack, TextColor3 = THEME.bg,
+					TextXAlignment = Enum.TextXAlignment.Center, MaxTextSize = 10, ZIndex = 2, Parent = tag })
+			end
+			petViewport(box, mutatedDef(def, pet.mutation), UDim2.new(1, 0, 0, 96), UDim2.new(0, 0, 0, 0), false)
 			text({
 				Position = UDim2.new(0, 6, 0, 96),
 				Size = UDim2.new(1, -12, 0, 18),
-				Text = def.name,
+				Text = petDisplayName(def, pet.mutation),
 				Font = Enum.Font.GothamBlack,
 				TextColor3 = rarity.color,
 				TextXAlignment = Enum.TextXAlignment.Center,
@@ -1560,7 +1597,7 @@ local function renderPets()
 			text({
 				Position = UDim2.new(0, 6, 0, 116),
 				Size = UDim2.new(1, -12, 0, 26),
-				Text = Config.DescribeBonus(def.bonus),
+				Text = Config.DescribeBonus(Config.MutatedBonus(def.id, pet.mutation)),
 				Font = Enum.Font.Gotham,
 				TextColor3 = THEME.gold,
 				TextXAlignment = Enum.TextXAlignment.Center,
@@ -1583,7 +1620,7 @@ local function renderPets()
 				Position = UDim2.new(0, 8, 0, 178),
 				Size = UDim2.new(1, -16, 0, 26),
 				Text = releaseArmed[pet.uid] and "TAP AGAIN TO RELEASE"
-					or ("Release +" .. Config.FormatNumber(rarity.releaseValue)),
+					or ("Release +" .. Config.FormatNumber(rarity.releaseValue * (mutation and mutation.coinMult or 1))),
 				BackgroundColor3 = releaseArmed[pet.uid] and THEME.danger or Color3.fromRGB(45, 50, 65),
 				TextColor3 = releaseArmed[pet.uid] and THEME.text or THEME.muted,
 				MaxTextSize = 12,
@@ -1627,7 +1664,8 @@ local function itemInfo(item)
 	elseif item.kind == "pet" then
 		local def = Config.GetPet(item.petId)
 		if def then
-			return def.name .. " (" .. Config.PetRarities[def.rarity].name .. ")", Config.PetRarities[def.rarity].color
+			return petDisplayName(def, item.mutation) .. " (" .. Config.PetRarities[def.rarity].name .. ")",
+				item.mutation and Config.Mutations[item.mutation] and Config.Mutations[item.mutation].color or Config.PetRarities[def.rarity].color
 		end
 	end
 	return "Unknown item", THEME.muted
@@ -1916,7 +1954,7 @@ end
 ---------------------------------------------------------------------------
 local requestPopup = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0),
-	Position = UDim2.new(0.5, 0, 0, 132),
+	Position = UDim2.new(0.5, 0, 0, 180),
 	Size = UDim2.new(0, 360, 0, 96),
 	BackgroundColor3 = THEME.bg,
 	Visible = false,
@@ -2836,6 +2874,58 @@ local function renderStore()
 	panelSubtitle.Text = state.studio and "Studio test mode: items without an id are free" or "Thank you for supporting the game!"
 	listLayout()
 
+	-- free: join the group
+	local groupCard = card(92, 0, THEME.good)
+	local rewards = {}
+	for _, r in ipairs(Config.GroupReward) do
+		local shown = table.clone(r)
+		if shown.perLevel then
+			shown.amount = shown.amount * state.level
+		end
+		table.insert(rewards, (Config.DescribeReward(shown, 0)))
+	end
+	text({
+		Position = UDim2.new(0, 14, 0, 8),
+		Size = UDim2.new(1, -190, 0, 20),
+		Text = state.groupClaimed and "THANKS FOR JOINING THE CREW!" or "FREE: JOIN OUR GROUP",
+		Font = Enum.Font.GothamBlack,
+		TextColor3 = THEME.good,
+		MaxTextSize = 17,
+		Parent = groupCard,
+	})
+	text({
+		Position = UDim2.new(0, 14, 0, 32),
+		Size = UDim2.new(1, -190, 0, 30),
+		Text = "Join the group (on the game page), then claim: " .. table.concat(rewards, ", ") .. ".",
+		Font = Enum.Font.Gotham,
+		TextWrapped = true,
+		MaxTextSize = 13,
+		Parent = groupCard,
+	})
+	text({
+		Position = UDim2.new(0, 14, 0, 66),
+		Size = UDim2.new(1, -190, 0, 16),
+		Text = "Enjoying Deep Sea Salvage? Leave a like - it really helps!",
+		Font = Enum.Font.GothamMedium,
+		TextColor3 = THEME.muted,
+		MaxTextSize = 12,
+		Parent = groupCard,
+	})
+	local claimGroup = button({
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -12, 0.5, 0),
+		Size = UDim2.new(0, 160, 0, 44),
+		Text = state.groupClaimed and "CLAIMED" or "CLAIM",
+		BackgroundColor3 = state.groupClaimed and Color3.fromRGB(60, 65, 75) or Color3.fromRGB(40, 170, 90),
+		TextColor3 = state.groupClaimed and THEME.muted or THEME.text,
+		Parent = groupCard,
+	})
+	claimGroup.MouseButton1Click:Connect(function()
+		if not state.groupClaimed then
+			Action:FireServer("ClaimGroupReward")
+		end
+	end)
+
 	sectionTitle("BOOSTS  (buy again to add more time)", 1)
 	local boosts = gridSection(2, UDim2.new(0.25, -6, 0, 150))
 	for i, product in ipairs(Config.Products) do
@@ -3097,6 +3187,122 @@ local function updateArenaLook()
 		if found and not arenaTipShown then
 			arenaTipShown = true
 			toast("Take out your weapon (press 1 or tap it at the bottom), then click or tap to attack creatures!", THEME.gold, 8)
+		end
+	end
+end
+
+---------------------------------------------------------------------------
+-- WEATHER (banner + rain / snow / gold / aurora around your camera)
+---------------------------------------------------------------------------
+local weatherBanner = new("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0),
+	Position = UDim2.new(0.5, 0, 0, 128),
+	Size = UDim2.new(0, 440, 0, 42),
+	BackgroundColor3 = THEME.bg,
+	BackgroundTransparency = 0.1,
+	Visible = false,
+	Parent = gui,
+})
+corner(weatherBanner, 12)
+local weatherStroke = stroke(weatherBanner, THEME.accent, 2.5, 0)
+local weatherTitle = text({
+	Position = UDim2.new(0, 10, 0, 3),
+	Size = UDim2.new(1, -20, 0, 20),
+	Font = Enum.Font.GothamBlack,
+	TextXAlignment = Enum.TextXAlignment.Center,
+	MaxTextSize = 17,
+	Parent = weatherBanner,
+})
+local weatherDesc = text({
+	Position = UDim2.new(0, 10, 0, 23),
+	Size = UDim2.new(1, -20, 0, 15),
+	Font = Enum.Font.Gotham,
+	TextXAlignment = Enum.TextXAlignment.Center,
+	MaxTextSize = 12,
+	Parent = weatherBanner,
+})
+
+local weatherPart = new("Part", {
+	Name = "SalvageWeather",
+	Anchored = true,
+	CanCollide = false,
+	CanQuery = false,
+	CanTouch = false,
+	Transparency = 1,
+	Size = Vector3.new(140, 1, 140),
+	Parent = workspace,
+})
+local weatherEmitter = new("ParticleEmitter", {
+	Enabled = false,
+	EmissionDirection = Enum.NormalId.Bottom,
+	Parent = weatherPart,
+})
+local WEATHER_LOOKS = {
+	Thunderstorm = { rate = 450, speed = NumberRange.new(80, 100), life = NumberRange.new(0.8, 1), size = 0.15, light = 0,
+		colors = ColorSequence.new(Color3.fromRGB(190, 210, 255)), tint = Color3.fromRGB(200, 210, 235), flashes = true },
+	Blizzard = { rate = 260, speed = NumberRange.new(8, 14), life = NumberRange.new(5, 7), size = 0.35, light = 0.3,
+		colors = ColorSequence.new(Color3.fromRGB(255, 255, 255)), tint = Color3.fromRGB(225, 240, 255) },
+	GoldenRain = { rate = 220, speed = NumberRange.new(28, 36), life = NumberRange.new(1.5, 2), size = 0.25, light = 1,
+		colors = ColorSequence.new(Color3.fromRGB(255, 215, 80)), tint = Color3.fromRGB(255, 240, 200) },
+	Aurora = { rate = 120, speed = NumberRange.new(3, 6), life = NumberRange.new(6, 9), size = 0.5, light = 1,
+		colors = ColorSequence.new(Color3.fromRGB(255, 110, 220), Color3.fromRGB(90, 255, 230)), tint = Color3.fromRGB(240, 220, 255) },
+}
+local weatherCC = nil
+local activeWeather = nil
+local nextFlash = 0
+
+local function updateWeather()
+	local id = remotes:GetAttribute("Weather")
+	local weather = id and id ~= "" and Config.GetWeather(id) or nil
+	-- banner
+	if weather then
+		local mutation = Config.Mutations[weather.mutation]
+		local left = math.max(0, math.ceil((remotes:GetAttribute("WeatherEnd") or 0) - now()))
+		weatherBanner.Visible = true
+		weatherStroke.Color = mutation.color
+		weatherTitle.TextColor3 = mutation.color
+		weatherTitle.Text = string.format("%s  -  %d:%02d", weather.name, left // 60, left % 60)
+		weatherDesc.Text = weather.desc
+	else
+		weatherBanner.Visible = false
+	end
+	-- effects (not underwater in the hunting grounds)
+	local show = weather and not currentArena
+	local look = show and WEATHER_LOOKS[weather.id]
+	if look and activeWeather ~= weather.id then
+		activeWeather = weather.id
+		weatherEmitter.Rate = look.rate
+		weatherEmitter.Speed = look.speed
+		weatherEmitter.Lifetime = look.life
+		weatherEmitter.Size = NumberSequence.new(look.size)
+		weatherEmitter.LightEmission = look.light
+		weatherEmitter.Color = look.colors
+		weatherEmitter.Enabled = true
+		if not weatherCC then
+			weatherCC = new("ColorCorrectionEffect", { Name = "WeatherLook", Parent = Lighting })
+		end
+		weatherCC.TintColor = look.tint
+	elseif not look and activeWeather then
+		activeWeather = nil
+		weatherEmitter.Enabled = false
+		if weatherCC then
+			weatherCC:Destroy()
+			weatherCC = nil
+		end
+	end
+	if look then
+		local camera = workspace.CurrentCamera
+		if camera then
+			weatherPart.CFrame = CFrame.new(camera.CFrame.Position + Vector3.new(0, 45, 0))
+		end
+		if look.flashes and weatherCC and os.clock() > nextFlash then
+			nextFlash = os.clock() + math.random(4, 9)
+			weatherCC.Brightness = 0.5
+			task.delay(0.08, function()
+				if weatherCC then
+					weatherCC.Brightness = 0
+				end
+			end)
 		end
 	end
 end
@@ -3369,6 +3575,9 @@ local function playSound(id, volume, pitch)
 end
 local SOUND_FOR = {
 	dailyClaimed = { 0.6, 1.2 },
+	mutatedHaul = { 0.6, 1.6 },
+	petMutated = { 0.7, 1.4 },
+	groupReward = { 0.6, 1.1 },
 	starterGift = { 0.7, 1.0 },
 	tutorialStep = { 0.5, 1.35 },
 	tutorialDone = { 0.7, 0.9 },
@@ -3435,6 +3644,31 @@ Notify.OnClientEvent:Connect(function(msg)
 		toast(msg.text, THEME.accent, 3)
 	elseif kind == "purchase" then
 		toast(msg.text, THEME.good, 5)
+	elseif kind == "storageFull" then
+		if msg.what == "eggs" then
+			local egg = Config.GetEgg(msg.egg)
+			toast(string.format("Egg storage full! %s sold for %s coins. (Hatch some, or get 2x Storage)", egg and egg.name or "Egg",
+				Config.FormatNumber(msg.coins)), THEME.gold, 5)
+		else
+			toast("Spare storage full! New spares are sold for coins. (Sell or trade some, or get 2x Storage)", THEME.gold, 6)
+		end
+	elseif kind == "mutatedHaul" then
+		local mutation = Config.Mutations[msg.mutation]
+		showSplash(mutation.name:upper() .. " HAUL!  x" .. mutation.coinMult, mutation.color)
+		toast(string.format('<font color="#%s">%s HAUL</font> worth %s coins!', mutation.color:ToHex(), mutation.name:upper(),
+			Config.FormatNumber(msg.coins)), mutation.color, 4)
+	elseif kind == "petMutated" then
+		local mutation = Config.Mutations[msg.mutation]
+		local def = Config.GetPet(msg.pet)
+		showSplash(petDisplayName(def, msg.mutation):upper() .. "!", mutation.color)
+		toast(string.format("Your %s mutated! Its bonus is now x%.2f and it's worth x%d.", def.name, mutation.petMult, mutation.coinMult),
+			mutation.color, 6)
+	elseif kind == "groupReward" then
+		showSplash("WELCOME TO THE CREW!", THEME.good)
+		for _, r in ipairs(msg.rewards) do
+			local label, color = Config.DescribeReward(r, 0)
+			toast("Group reward: " .. label, color, 5)
+		end
 	elseif kind == "starterGift" then
 		showSplash("WELCOME GIFT!", THEME.gold)
 		local items = {}
@@ -3567,6 +3801,7 @@ while true do
 	refreshBanner()
 	updateBoostPills()
 	updateArenaLook()
+	updateWeather()
 	updateGuide()
 	pulseMenus()
 	dailyDot.Visible = state ~= nil and state.login ~= nil and state.login.canClaim

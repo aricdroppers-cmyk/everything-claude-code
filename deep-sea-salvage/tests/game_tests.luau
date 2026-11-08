@@ -971,6 +971,119 @@ leave(U)
 join(T) -- Tia comes back: gift is not given twice
 check(lastState[20].coins ~= nil and (notifications[20] or {})[1] ~= nil, "Tia rejoined")
 
+
+-- ======================= ROUND 6: group reward, new passes, storage, weather + mutations =======================
+presetData["player_30"] = {
+	starterGiven = true, tutorial = { step = 99 }, coins = 0, level = 6, autoSell = false,
+	eggs = { TidePool = 25 },
+	parts = { ["FishingSkiff/Hull"] = 151 }, -- 150 spares = full
+	pets = { { uid = 1, id = "Clownfish" }, { uid = 2, id = "Octopus" } }, equipped = { 1, 2 }, nextPetUid = 3,
+}
+local W = makePlayer(30, "Wes")
+join(W)
+local sW = lastState[30]
+check(sW.maxPets == 40 and sW.eggCapacity == 25 and sW.spareCapacity == 150, "default storage: 40 pets, 25 eggs, 150 spares")
+
+-- group reward (Studio test mode while GroupId is 0)
+fakeClock += 5
+act(W, "ClaimGroupReward")
+sW = lastState[30]
+check(sW.groupClaimed == true, "group reward claimed")
+check((sW.charms.CrewBadge or 0) == 1 and table.find(sW.equippedCharms, "CrewBadge") ~= nil, "exclusive Crew Badge charm given and equipped")
+check(sW.pearls == 25 and sW.coins == 200 * 6, "group reward pearls + level-scaled coins")
+check((sW.eggs.Kelp or 0) == 2, "group reward eggs (gifts can go over the egg limit)")
+fakeClock += 5
+clearNotes()
+act(W, "ClaimGroupReward")
+check(lastNotify(30, "error") ~= nil, "group reward only once")
+
+-- storage limits: full egg storage sells new eggs, full spare storage sells new spares
+local savedEggChance = Config.EggChance
+Config.EggChance = 1
+local coinsBeforeHaul = lastState[30].coins
+local usedW = {}
+local function haulW(n)
+	for _ = 1, n do
+		tick(12)
+		for _, pr in ipairs(created) do
+			if pr.ClassName == "ProximityPrompt" and string.find(tostring(pr.ObjectText), "Wes") and not usedW[pr] then
+				usedW[pr] = true
+				fire(pr, W)
+			end
+		end
+	end
+end
+haulW(3)
+Config.EggChance = savedEggChance
+local eggNote = nil
+for _, n in ipairs(notifications[30] or {}) do
+	if n.kind == "storageFull" and n.what == "eggs" then eggNote = n end
+end
+check(eggNote ~= nil, "egg storage full -> egg sold for coins")
+local eggCount = 0
+for _, c in pairs(lastState[30].eggs) do eggCount += c end
+check(eggCount == 27, "egg count didn't grow past the limit (" .. eggCount .. ")")
+check(lastState[30].coins > coinsBeforeHaul, "coins from hauls and sold eggs")
+
+-- passes
+act(W, "Buy", "BigTank")
+act(W, "Buy", "BigStorage")
+local dmgBefore = lastState[30].multipliers.damage
+act(W, "Buy", "DoubleDamage")
+sW = lastState[30]
+check(sW.maxPets == 100, "Bigger Pet Tank: 100 pets")
+check(sW.eggCapacity == 50 and sW.spareCapacity == 300, "2x Storage doubles eggs and spares")
+check(math.abs(sW.multipliers.damage - dmgBefore * 2) < 1e-6, "2x Weapon Damage doubles damage")
+
+-- weather: force the next weather to always mutate, then wait for it
+for _, w in ipairs(Config.Weather.types) do
+	w.crateChance, w.petChance = 1, 1
+end
+local remotesFolder = ReplicatedStorage:FindFirstChild("SalvageRemotes")
+local weatherSeen = nil
+for _ = 1, 40 do -- let any weather that's already going finish first, so we catch a fresh one
+	if (remotesFolder:GetAttribute("Weather") or "") == "" then break end
+	tick(5)
+end
+for _ = 1, 70 do
+	tick(5)
+	local id = remotesFolder:GetAttribute("Weather")
+	if id and id ~= "" then
+		weatherSeen = id
+		break
+	end
+end
+check(weatherSeen ~= nil, "weather starts on its own (" .. tostring(weatherSeen) .. ")")
+clearNotes()
+for _ = 1, 6 do -- a Storm Surge breach can sink a crate, so allow a few dives
+	haulW(1)
+	if lastNotify(30, "mutatedHaul") then break end
+end
+local mutatedNote = lastNotify(30, "mutatedHaul")
+check(mutatedNote ~= nil, "crates come up mutated during weather")
+if mutatedNote then
+	local mutation = Config.Mutations[mutatedNote.mutation]
+	check(mutatedNote.coins >= Config.Zones[1].coins * mutation.coinMult, "mutated haul pays x" .. mutation.coinMult)
+end
+for _ = 1, 6 do
+	tick(5)
+end
+local mutatedPet = false
+for _, pet in ipairs(lastState[30].pets) do
+	if pet.mutation then mutatedPet = true end
+end
+check(mutatedPet, "equipped pets mutate during weather")
+check(string.find(W.attrs.EquippedPets or "", ":") ~= nil, "mutation shared with other players (" .. tostring(W.attrs.EquippedPets) .. ")")
+local multMutated = lastState[30].petBonus.coins
+check(multMutated > 0, "mutated pets still give bonuses")
+for _ = 1, 30 do
+	tick(5)
+end
+check((remotesFolder:GetAttribute("Weather") or "") == "", "weather ends")
+for _, w in ipairs(Config.Weather.types) do
+	w.crateChance, w.petChance = 0.1, 0.01
+end
+
 -- ======================= CLIENT: run the real UI against the real server =======================
 clientPlayer = A
 PlayersService.LocalPlayer = A

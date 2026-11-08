@@ -112,6 +112,48 @@ gets darker the deeper you go.
 - They cover every server, all time, and refresh every 2 minutes. Scores are
   uploaded with each save.
 
+### Weather and mutations
+- About every 5 minutes the weather changes for 2 minutes:
+
+  | Weather | Mutation | Haul value | Pet bonus | How common |
+  |---|---|---|---|---|
+  | Thunderstorm | Electrified | x2 | x1.25 | Common |
+  | Blizzard | Frozen | x3 | x1.35 | |
+  | Golden Rain | Golden | x5 | x1.5 | |
+  | Aurora | Rainbow | x10 | x2 | Rare |
+
+- Rain, snow, falling gold or aurora sparkles fall around you, with a banner
+  and a countdown. Thunderstorms also flash lightning.
+- **Mutated crates:** during weather, crates can come up mutated (glowing in
+  the mutation's color). That haul and its sold spares are worth the
+  multiplier.
+- **Mutated pets:** every 20 seconds, each equipped pet has a small chance to
+  mutate for good. It gets a stronger bonus, a glowing tinted look and a
+  higher release value.
+  - A pet only ever upgrades (an Electrified pet can become Golden, never the
+    other way round).
+  - Mutations carry over in trades, and everyone sees your mutated pets.
+- Edit chances and multipliers in `Config.Weather` and `Config.Mutations`.
+
+### Storage
+- You can hold **25 eggs** and **150 spare fragments**. The 2x Storage pass
+  doubles both.
+- When storage is full, newly found eggs and spares sell for coins
+  automatically, so nothing is wasted.
+- Gifts (daily, season, quests, trades, the group reward) can go over the
+  limit.
+- The pet tank holds **40 pets**, or **100** with the Bigger Pet Tank pass.
+
+### Group reward
+- **STORE > FREE: JOIN OUR GROUP** gives a one-time 25 Pearls, 2 Kelp Eggs,
+  coins, and the **Crew Badge** charm (+10% coins, +5% luck). The Crew Badge
+  can only be got this way.
+- Put your group's id in `Config.GroupId`. Until you do, claiming works for
+  free in Studio so you can test it.
+- **Roblox doesn't allow rewards for liking or favoriting a game.** That's why
+  the reward is only for joining the group (which is allowed). The card just
+  politely asks people to leave a like.
+
 ### Quests
 - **QUESTS** has 3 daily quests (new at midnight UTC) and 2 weekly quests (new
   on Monday).
@@ -193,6 +235,9 @@ gets darker the deeper you go.
 | Auto Haul (crates collect themselves) | Game pass | 199 R$ |
 | +2 Pet Slots | Game pass | 149 R$ |
 | VIP (+20% XP, +10% coins, gold tag) | Game pass | 249 R$ |
+| 2x Storage (50 eggs, 300 spares) | Game pass | 99 R$ |
+| Bigger Pet Tank (100 pets) | Game pass | 99 R$ |
+| 2x Weapon Damage | Game pass | 199 R$ |
 | 2x Coins / 2x Luck / 2x XP (30 min) | Developer product | 29 / 39 / 25 R$ |
 | Rebirth Rush (2x Coins + 2x XP, 30 min) | Developer product | 49 R$ |
 | +3 Levels | Developer product | 49 R$ |
@@ -219,7 +264,7 @@ hides itself.
 
 ### Making purchases real
 1. In the **Creator Dashboard**, open your experience, then
-   **Monetization > Passes**. Create the 5 passes.
+   **Monetization > Passes**. Create the 8 passes.
 2. Under **Monetization > Developer Products**, create the 8 products (3 boosts,
    Rebirth Rush, +3 Levels, Instant Rebirth and the 2 season passes).
 3. Paste each ID into the matching `id = 0` in `Config.GamePasses` and
@@ -291,14 +336,15 @@ None of these need uploaded animations:
 ## Testing
 `tests/run.sh` runs the real server **and** the real client inside a fake
 Roblox, with real 3D math. You need the free `luau` command line tool from
-https://github.com/luau-lang/luau/releases. It runs about 215 checks:
+https://github.com/luau-lang/luau/releases. It runs about 235 checks:
 - Gameplay: dives, levels, hatching, trading, the season pass (retroactive
   purchases, prestige scaling), quests, rebirth, all 3 Robux rebirth options,
   boosts and receipts (never granted twice), charms and Tide Bottles, portals,
   enemy AI, weapons, the Leviathan, all 3 random events, the daily streak
   (including missing a day), autosave, the global leaderboards, live prices,
-  the combat animations, and a brand-new player playing through the whole
-  tutorial from the starter gift to their first rebirth.
+  the combat animations, a brand-new player playing through the whole
+  tutorial, the group reward, storage limits, the new passes, and weather
+  mutating crates and pets.
 - Exploits: remote spam, using prompts from far away, teleporting into
   hunting grounds you're too low for, trading items you don't have, and the
   anti-cheat (speed hack, fly hack, kick after repeated strikes, no false

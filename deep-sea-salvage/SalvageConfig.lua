@@ -158,6 +158,15 @@ Config.KrakenEggMinHits = 10 -- hits needed in a won Kraken fight to get a Krake
 -- octopus, ray, eel. Optional: glow, stripes, round (puffer), lure, fin.
 ---------------------------------------------------------------------------
 Config.MaxPets = 40
+Config.BigTankPets = 100 -- with the Bigger Pet Tank pass
+
+-- STORAGE: how many eggs and spare fragments you can hold (x2 with the 2x
+-- Storage pass). When it's full, new eggs and spares are sold for coins
+-- automatically so nothing is ever wasted. Gifts (daily, season, quests,
+-- trades) can go over the limit.
+Config.EggStorage = 25
+Config.SpareStorage = 150
+Config.EggSellValue = { TidePool = 100, Kelp = 500, Twilight = 2500, Midnight = 12000, Abyss = 45000, Kraken = 3000 }
 Config.MaxEquipped = 3
 Config.PetRarities = {
 	{ name = "Common", color = Color3.fromRGB(200, 205, 212), releaseValue = 25 },
@@ -497,6 +506,9 @@ Config.GamePasses = {
 	{ key = "AutoHaul", name = "Auto Haul", desc = "Crates haul themselves up. No walking back to your bay!", price = 199, id = 0 },
 	{ key = "PetSlots", name = "+2 Pet Slots", desc = "Equip 5 pets instead of 3.", price = 149, id = 0 },
 	{ key = "VIP", name = "VIP Diver", desc = "+20% XP, +10% coins and a gold VIP tag.", price = 249, id = 0 },
+	{ key = "BigStorage", name = "2x Storage", desc = "Hold twice as many eggs and spare fragments.", price = 99, id = 0 },
+	{ key = "BigTank", name = "Bigger Pet Tank", desc = "Keep up to 100 pets instead of 40.", price = 99, id = 0 },
+	{ key = "DoubleDamage", name = "2x Weapon Damage", desc = "Every hit in the hunting grounds does double damage.", price = 199, id = 0 },
 }
 Config.Products = {
 	{ key = "BoostCoins", name = "2x Coins (30 min)", desc = "Double coins for 30 minutes.", price = 29, id = 0, boost = "coins", minutes = 30 },
@@ -576,6 +588,59 @@ Config.Tutorial = {
 		reward = { { kind = "pearls", amount = 25 }, { kind = "charm", amount = 1 } } },
 }
 Config.TutorialDailyAfterStep = 3 -- don't pop up the daily calendar for brand-new players until this step
+
+---------------------------------------------------------------------------
+-- GROUP REWARD: join your Roblox group, claim once. Put your group's id here
+-- (the number in the group's web address). While it's 0, claiming works for
+-- free in Studio so you can test it.
+-- Roblox does NOT allow rewards for liking or favoriting a game, so the
+-- reward is only for joining the group (which is allowed).
+---------------------------------------------------------------------------
+Config.GroupId = 0
+Config.GroupReward = {
+	{ kind = "pearls", amount = 25 },
+	{ kind = "egg", id = "Kelp", amount = 2 },
+	{ kind = "coins", amount = 200, perLevel = true },
+	{ kind = "charmId", id = "CrewBadge" },
+}
+
+---------------------------------------------------------------------------
+-- WEATHER + MUTATIONS
+-- Every so often the weather changes for a couple of minutes. While it lasts,
+-- crates can come up MUTATED (that haul is worth more coins) and your
+-- equipped pets can mutate for good (bigger bonuses, worth more).
+-- A pet only ever mutates to a better (higher tier) mutation.
+---------------------------------------------------------------------------
+Config.Mutations = {
+	Electric = { name = "Electrified", tier = 1, color = rgb(255, 235, 80), coinMult = 2, petMult = 1.25 },
+	Frozen = { name = "Frozen", tier = 2, color = rgb(160, 230, 255), coinMult = 3, petMult = 1.35 },
+	Golden = { name = "Golden", tier = 3, color = rgb(255, 200, 40), coinMult = 5, petMult = 1.5 },
+	Rainbow = { name = "Rainbow", tier = 4, color = rgb(255, 110, 220), coinMult = 10, petMult = 2 },
+}
+Config.Weather = {
+	interval = 300, -- seconds between weather rolls
+	duration = 120,
+	petCheckEvery = 20, -- seconds between pet mutation rolls during weather
+	types = {
+		{ id = "Thunderstorm", name = "THUNDERSTORM", mutation = "Electric", weight = 40, crateChance = 0.25, petChance = 0.04,
+			desc = "Crates can come up ELECTRIFIED (x2 coins). Pets may mutate!" },
+		{ id = "Blizzard", name = "BLIZZARD", mutation = "Frozen", weight = 30, crateChance = 0.2, petChance = 0.03,
+			desc = "Crates can come up FROZEN (x3 coins). Pets may mutate!" },
+		{ id = "GoldenRain", name = "GOLDEN RAIN", mutation = "Golden", weight = 20, crateChance = 0.15, petChance = 0.02,
+			desc = "Crates can come up GOLDEN (x5 coins). Pets may mutate!" },
+		{ id = "Aurora", name = "AURORA", mutation = "Rainbow", weight = 10, crateChance = 0.1, petChance = 0.01,
+			desc = "Crates can come up RAINBOW (x10 coins)! Pets may mutate!" },
+	},
+}
+
+function Config.GetWeather(id)
+	for _, w in ipairs(Config.Weather.types) do
+		if w.id == id then
+			return w
+		end
+	end
+	return nil
+end
 
 ---------------------------------------------------------------------------
 -- GLOBAL LEADERBOARDS (boards on the island, all servers, all time)
@@ -669,6 +734,9 @@ Config.Charms = {
 		color = rgb(200, 220, 255), bonus = { luck = 0.2, xp = 0.15 } },
 	{ id = "CrownOfTides", name = "Crown of Tides", season = "S1", rarity = 5, weight = 0.3,
 		color = rgb(255, 205, 70), bonus = { luck = 0.35, coins = 0.25 } },
+	-- group reward only (season "Group" never drops)
+	{ id = "CrewBadge", name = "Crew Badge", season = "Group", rarity = 4, weight = 0,
+		color = rgb(90, 200, 255), bonus = { coins = 0.1, luck = 0.05 } },
 }
 Config.CharmChanceHaul = 0.02 -- chance per successful haul
 Config.CharmChanceKill = 0.01 -- chance per creature kill
@@ -802,6 +870,9 @@ function Config.DescribeReward(reward, prestige)
 		return w and w.name or r.id, Color3.fromRGB(255, 150, 80)
 	elseif r.kind == "charm" then
 		return (r.amount or 1) .. "x Random Season Charm", Color3.fromRGB(90, 255, 230)
+	elseif r.kind == "charmId" then
+		local charm = Config.GetCharm(r.id)
+		return (charm and charm.name or r.id) .. " (charm)", charm and charm.color or Color3.new(1, 1, 1)
 	end
 	return "?", Color3.new(1, 1, 1)
 end
@@ -852,26 +923,40 @@ function Config.PetsInEgg(eggId)
 end
 
 -- Sum the bonuses of a list of pet ids
-function Config.PetBonusTotals(petIds)
+-- Sum the bonuses of pets. Each entry is a pet id, or { id = ..., mutation = ... }
+function Config.PetBonusTotals(entries)
 	local totals = { coins = 0, luck = 0, hull = 0, xp = 0 }
-	for _, petId in ipairs(petIds) do
+	for _, entry in ipairs(entries) do
+		local petId = type(entry) == "table" and entry.id or entry
+		local mutation = type(entry) == "table" and entry.mutation and Config.Mutations[entry.mutation]
 		local pet = Config.GetPet(petId)
 		if pet then
 			for stat, value in pairs(pet.bonus) do
-				totals[stat] += value
+				totals[stat] += value * (mutation and mutation.petMult or 1)
 			end
 		end
 	end
 	return totals
 end
 
+-- A pet's bonus after its mutation
+function Config.MutatedBonus(petId, mutationId)
+	local pet = Config.GetPet(petId)
+	local mutation = mutationId and Config.Mutations[mutationId]
+	local out = {}
+	for stat, value in pairs(pet and pet.bonus or {}) do
+		out[stat] = value * (mutation and mutation.petMult or 1)
+	end
+	return out
+end
+
 -- One number used to rank pets for "Equip Best"
-function Config.PetScore(petId)
+function Config.PetScore(petId, mutationId)
 	local pet = Config.GetPet(petId)
 	if not pet then
 		return 0
 	end
-	local b = pet.bonus
+	local b = Config.MutatedBonus(petId, mutationId)
 	return (b.coins or 0) + (b.luck or 0) + (b.xp or 0) * 0.5 + (b.hull or 0) * 6
 end
 
