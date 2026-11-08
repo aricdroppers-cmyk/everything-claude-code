@@ -92,6 +92,21 @@ gets darker the deeper you go.
 - The Leviathan gives 50,000 coins, 20 Pearls, 3 fragments and a 50% chance of
   an Abyss Egg to everyone who hit it.
 
+### The Mythic pet: Elder Leviathan
+- **Mythic** is the top pet rarity, and right now there is exactly one Mythic
+  pet: the **Elder Leviathan**. It never comes from eggs, the season pass or
+  Robux. The only way to get it is to beat THE LEVIATHAN.
+- Each player who did at least 3% of the boss's health rolls a **2%** chance.
+  Bad luck protection: it is **guaranteed on your 75th Leviathan kill** without
+  one, and the counter resets when you get it. After every kill the game says
+  how many kills are left until it's guaranteed.
+- When it drops, a full-screen "LEVIATHAN DROP!" reveal plays and the whole
+  server is told. It goes into your tank even if the tank is full.
+- Stats: +300% coins, +150% luck, +75% XP, plus its own built-in ability,
+  **Tidal Roar** (a huge blast every 4s that knocks creatures back). It works
+  without a weather mutation, and it can still mutate for a second ability.
+- To change the odds, edit `Config.MythicDrop` in SalvageConfig.
+
 ### Daily login streak
 - Press **DAILY** (top left; a red "!" means a reward is waiting). The popup
   also opens by itself when you join.
@@ -245,7 +260,7 @@ gets darker the deeper you go.
     3 Epic/Legendary season pets and the Tidebreaker Trident. It also gives
     +10% season XP.
   - **Mystic (1000 R$)** includes everything in Premium, plus its own track of
-    the best rewards: 3 **Mythic** pets (a rarity only Mystic gives), the
+    the best rewards: 3 exclusive **Legendary** pets, the
     Mystic Trident (the strongest weapon), the largest egg/coin/Pearl rewards
     and a 2x Everything boost. It also gives +25% season XP.
 - Rewards are given automatically when you reach a tier. If you buy a pass

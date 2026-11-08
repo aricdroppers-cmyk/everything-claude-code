@@ -880,7 +880,7 @@ local function defaultData()
 		parts = {},
 		ships = {},
 		pity = 0,
-		stats = { hauls = 0, fragments = 0, breaches = 0, hatched = 0, trades = 0, kills = 0, levelsGained = 0, arenaVisits = 0 },
+		stats = { hauls = 0, fragments = 0, breaches = 0, hatched = 0, trades = 0, kills = 0, levelsGained = 0, arenaVisits = 0, bossKills = 0, mythicPity = 0 },
 		level = 1,
 		bestLevel = 1,
 		xp = 0,
@@ -3338,6 +3338,31 @@ local function giveKillFragment(session, zoneIndex)
 	end
 end
 
+-- Leviathan kill: roll for the boss-only Mythic pet (with bad luck protection).
+-- Returns the player's pity progress, or nil if they didn't fight enough to roll.
+local function rollMythicDrop(session, damageShare)
+	local drop = Config.MythicDrop
+	if damageShare < drop.minDamageShare then
+		return nil
+	end
+	local data = session.data
+	data.stats.bossKills += 1
+	data.stats.mythicPity += 1
+	if rng:NextNumber() >= drop.chance and data.stats.mythicPity < drop.pity then
+		return data.stats.mythicPity
+	end
+	data.stats.mythicPity = 0
+	-- never lost to a full tank: a Mythic always goes in, even over the limit
+	local uid = givePet(data, drop.pet)
+	if #data.equipped < maxEquipped(session) then
+		table.insert(data.equipped, uid)
+	end
+	local def = Config.GetPet(drop.pet)
+	notify(session.player, { kind = "hatch", pet = drop.pet, boss = true })
+	announce(session.player.DisplayName .. " got the MYTHIC " .. def.name .. " from the Leviathan!", Config.PetRarities[def.rarity].color)
+	return 0
+end
+
 local function killEnemy(enemy)
 	local def = enemy.def
 	local zoneIndex = enemy.arena.def.zone
@@ -3379,7 +3404,11 @@ local function killEnemy(enemy)
 					findEgg(session, egg.id)
 				end
 			end
-			notify(player, { kind = "kill", enemy = def.name, coins = coins, pearls = def.pearls, boss = def.boss })
+			local pity
+			if def.boss then
+				pity = rollMythicDrop(session, (enemy.damageBy[player] or 0) / enemy.maxHp)
+			end
+			notify(player, { kind = "kill", enemy = def.name, coins = coins, pearls = def.pearls, boss = def.boss, pity = pity })
 			pushState(session)
 		end
 	end
@@ -3724,8 +3753,8 @@ local function applyExtras(session, info, ability, enemy, weaponDamage)
 	end
 end
 
-local function useAbility(session, info, mutationId, origin)
-	local mutation = Config.Mutations[mutationId]
+-- `mutation` is a weather mutation, or { ability, color } for a pet's built-in ability
+local function useAbility(session, info, mutation, origin)
 	local ability = mutation.ability
 	local arena = arenaAt(info.hrp.Position)
 	if not arena then
@@ -3854,12 +3883,18 @@ task.spawn(function()
 				if session and session.loaded then
 					session.abilityReady = session.abilityReady or {}
 					for slot, pet in ipairs(equippedPets(session.data)) do
-						local mutation = pet.mutation and Config.Mutations[pet.mutation]
-						local key = slot .. ":" .. tostring(pet.mutation)
-						if mutation and clock >= (session.abilityReady[key] or 0) then
-							local origin = (info.hrp.CFrame * CFrame.new(PET_SLOTS[slot] or Vector3.new(0, 1, 4))).Position
-							if useAbility(session, info, pet.mutation, origin) then
-								session.abilityReady[key] = clock + mutation.ability.cooldown
+						local origin = (info.hrp.CFrame * CFrame.new(PET_SLOTS[slot] or Vector3.new(0, 1, 4))).Position
+						local petDef = Config.GetPet(pet.id)
+						local sources = {}
+						if pet.mutation and Config.Mutations[pet.mutation] then
+							table.insert(sources, { key = slot .. ":" .. pet.mutation, mutation = Config.Mutations[pet.mutation] })
+						end
+						if petDef and petDef.ability then -- built-in ability (the Mythic pet)
+							table.insert(sources, { key = slot .. ":innate:" .. pet.id, mutation = { ability = petDef.ability, color = petDef.accent } })
+						end
+						for _, source in ipairs(sources) do
+							if clock >= (session.abilityReady[source.key] or 0) and useAbility(session, info, source.mutation, origin) then
+								session.abilityReady[source.key] = clock + source.mutation.ability.cooldown
 							end
 						end
 					end

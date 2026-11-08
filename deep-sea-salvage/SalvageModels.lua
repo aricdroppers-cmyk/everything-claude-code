@@ -365,33 +365,73 @@ function Models.Build(def, scale)
 		tube(tail, 0.18, 0.05, color)
 		B(V(0.06, 0.06, 0.3), C(0, 0.05, 3.5), accent, accentMat)
 	else
-		------------------------------------------------------------------ eel / sea dragon
+		------------------------------------------------------------------ eel / sea dragon / elder serpent
 		local dragon = (def.rarity or 1) >= 4
+		local elder = (def.rarity or 1) >= 6 -- Mythic: raised neck, crown, glowing spine, wing fins, tail fluke
+		local hy = elder and 1.2 or 0 -- head lift
+		local n = elder and 16 or 14
 		local pts = {}
-		for i = 0, 13 do
-			table.insert(pts, Vector3.new(math.sin(i * 0.55) * 0.35, math.sin(i * 0.3) * 0.08, -0.2 + i * 0.3))
+		for i = 0, n - 1 do
+			if elder then
+				-- S-coil: neck rises from the coils, body winds back and forth
+				local lift = math.max(0, 4 - i) * 0.3
+				table.insert(pts, Vector3.new(math.sin(i * 0.5) * 0.95, lift, -0.15 + i * 0.2))
+			else
+				table.insert(pts, Vector3.new(math.sin(i * 0.55) * 0.35, math.sin(i * 0.3) * 0.08, -0.2 + i * 0.3))
+			end
 		end
-		tube(pts, 0.85, 0.22, color)
-		for i = 1, 12, 1 do
+		tube(pts, elder and 0.95 or 0.85, 0.22, color)
+		for i = 1, n - 2 do
 			local p = pts[i]
-			local d = (0.85 + (0.22 - 0.85) * (i - 1) / 13)
-			E(V(0.06, 0.3, 0.32), C(p.X, p.Y + d * 0.5 + 0.05, p.Z), accent, accentMat) -- fin ribbon
+			local d = ((elder and 0.95 or 0.85) + (0.22 - (elder and 0.95 or 0.85)) * (i - 1) / (n - 1))
+			if elder and i >= 4 then
+				E(V(0.09, 0.5 * d + 0.18, 0.2), C(p.X, p.Y + d * 0.5 + 0.12, p.Z) * A(-28, 0, 0), accent, Enum.Material.Neon) -- glowing spine spikes
+				for _, side in ipairs({ -1, 1 }) do
+					if i % 2 == 1 then
+						E(V(0.1, 0.1, 0.1), C(p.X + side * d * 0.46, p.Y, p.Z), lighter(accent, 0.3), Enum.Material.Neon) -- glowing side lights
+					end
+				end
+			elseif elder then
+				E(V(0.08, 0.5, 0.32), C(p.X, p.Y, p.Z + d * 0.5 + 0.08) * A(70, 0, 0), accent, Enum.Material.Neon) -- mane down the back of the neck
+			else
+				E(V(0.06, 0.3, 0.32), C(p.X, p.Y + d * 0.5 + 0.05, p.Z), accent, accentMat) -- fin ribbon
+			end
 			if i % 2 == 0 then
 				E(V(d * 0.5, 0.06, 0.22), C(p.X, p.Y - d * 0.42, p.Z), lighter(color, 0.4)) -- lighter belly scales
 			end
 		end
-		E(V(0.85, 0.75, 1.15), C(0, 0.02, -0.55), color) -- head
-		E(V(0.7, 0.28, 0.85), C(0, -0.25, -0.62), darker(color, 0.25)) -- jaw
-		E(V(0.5, 0.12, 0.4), C(0, -0.15, -1.0), darker(color, 0.6)) -- open mouth
+		E(V(elder and 1.2 or 0.85, elder and 1.0 or 0.75, elder and 1.6 or 1.15), C(0, 0.02 + hy, -0.6), color) -- head
+		if elder then
+			E(V(0.8, 0.55, 0.9), C(0, -0.05 + hy, -1.15), color) -- long snout
+			E(V(0.9, 0.12, 1.2), C(0, 0.42 + hy, -0.6), lighter(accent, 0.2), Enum.Material.Neon, 0.2) -- glowing brow ridge
+		end
+		E(V(0.7, 0.28, elder and 1.2 or 0.85), C(0, -0.25 + hy - (elder and 0.1 or 0), -0.62 - (elder and 0.4 or 0)), darker(color, 0.25)) -- jaw
+		E(V(0.5, 0.12, 0.4), C(0, -0.15 + hy - (elder and 0.12 or 0), -1.0 - (elder and 0.45 or 0)), darker(color, 0.6)) -- open mouth
 		for k = -1, 1 do
-			B(V(0.05, 0.12, 0.05), C(k * 0.12, -0.08, -1.05), WHITE) -- teeth
+			B(V(0.05, elder and 0.18 or 0.12, 0.05), C(k * 0.12, -0.08 + hy - (elder and 0.12 or 0), -1.05 - (elder and 0.45 or 0)), WHITE) -- teeth
 		end
 		for _, side in ipairs({ -1, 1 }) do
-			eye(side * 0.3, 0.2, -0.85, 0.24, side * 0.7, -0.7)
-			if dragon then
-				B(V(0.1, 0.5, 0.1), C(side * 0.25, 0.55, -0.4) * A(35, 0, side * -12), lighter(accent, 0.2), accentMat) -- horns
-				B(V(0.08, 0.35, 0.08), C(side * 0.27, 0.85, -0.22) * A(70, 0, side * -12), lighter(accent, 0.2), accentMat)
-				E(V(0.05, 0.05, 0.6), C(side * 0.3, -0.18, -1.1) * A(25, side * 25, 0), accent, accentMat) -- whiskers
+			if elder then
+				eye(side * 0.34, 0.24 + hy, -0.9, 0.26, side * 0.7, -0.7, accent, true)
+				for k = 0, 2 do -- crown of swept-back horns
+					B(V(0.1, 0.75 - k * 0.15, 0.1), C(side * (0.2 + k * 0.1), 0.6 + hy - k * 0.05, -0.45 + k * 0.28) * A(-55 + k * 5, 0, side * -(14 + k * 10)),
+						lighter(accent, 0.35), Enum.Material.Neon)
+				end
+				E(V(0.05, 0.05, 0.75), C(side * 0.3, -0.18 + hy, -1.2) * A(25, side * 25, 0), accent, Enum.Material.Neon) -- whiskers
+				local wing = pts[6]
+				for k = 0, 2 do -- swept-back fin spines
+					E(V(0.95 - k * 0.2, 0.06, 0.16), C(wing.X + side * (0.55 + k * 0.05), wing.Y + 0.15, wing.Z + k * 0.18) * A(0, side * -(45 + k * 12), side * -30),
+						accent, Enum.Material.Neon, 0.1)
+				end
+				local tip = pts[n]
+				E(V(0.07, 0.6, 0.38), C(tip.X, tip.Y + side * 0.22, tip.Z + 0.12) * A(side * -40, 0, 0), accent, Enum.Material.Glass, 0.15) -- tail fluke
+			else
+				eye(side * 0.3, 0.2, -0.85, 0.24, side * 0.7, -0.7)
+				if dragon then
+					B(V(0.1, 0.5, 0.1), C(side * 0.25, 0.55, -0.4) * A(35, 0, side * -12), lighter(accent, 0.2), accentMat) -- horns
+					B(V(0.08, 0.35, 0.08), C(side * 0.27, 0.85, -0.22) * A(70, 0, side * -12), lighter(accent, 0.2), accentMat)
+					E(V(0.05, 0.05, 0.6), C(side * 0.3, -0.18, -1.1) * A(25, side * 25, 0), accent, accentMat) -- whiskers
+				end
 			end
 		end
 	end

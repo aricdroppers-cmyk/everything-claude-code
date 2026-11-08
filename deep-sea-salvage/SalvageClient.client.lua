@@ -1200,7 +1200,9 @@ end
 
 -- a 3D model in a little window. motion: "spin", "sway" or nil
 local viewportMotion = {}
-local function modelViewport(parent, model, size, position, motion, zIndex)
+-- baseYaw (degrees) turns the model; long bodies (eels, dragons) use a side view
+local function modelViewport(parent, model, size, position, motion, zIndex, baseYaw)
+	local yaw = math.rad(baseYaw or -20)
 	local viewport = new("ViewportFrame", {
 		Size = size,
 		Position = position or UDim2.new(),
@@ -1217,9 +1219,9 @@ local function modelViewport(parent, model, size, position, motion, zIndex)
 	-- close enough that the model fills its window
 	camera.CFrame = CFrame.lookAt(Vector3.new(extents * 0.42, extents * 0.3, -extents * 0.98), Vector3.new(0, 0, 0))
 	viewport.CurrentCamera = camera
-	model:PivotTo(CFrame.Angles(0, math.rad(-20), 0))
+	model:PivotTo(CFrame.Angles(0, yaw, 0))
 	if motion then
-		table.insert(viewportMotion, { model = model, motion = motion, phase = math.random() * 6 })
+		table.insert(viewportMotion, { model = model, motion = motion, phase = math.random() * 6, yaw = yaw })
 	end
 	return viewport
 end
@@ -1273,7 +1275,7 @@ RunService.RenderStepped:Connect(function(dt)
 	for i = #viewportMotion, 1, -1 do
 		local m = viewportMotion[i]
 		if m.model.Parent then
-			local angle = m.motion == "spin" and t * 1.2 or math.rad(-20) + math.sin(t * 1.3 + m.phase) * 0.45
+			local angle = m.motion == "spin" and t * 1.2 or m.yaw + math.sin(t * 1.3 + m.phase) * 0.45
 			m.model:PivotTo(CFrame.Angles(0, angle, 0) * CFrame.new(0, math.sin(t * 2 + m.phase) * 0.08, 0))
 		else
 			table.remove(viewportMotion, i)
@@ -1394,7 +1396,7 @@ end)
 -- VIEWPORT PREVIEW (a little 3D window showing a pet)
 ---------------------------------------------------------------------------
 local function petViewport(parent, def, size, position, spin)
-	return modelViewport(parent, buildPet(def, 1), size, position, spin and "spin" or "sway")
+	return modelViewport(parent, buildPet(def, 1), size, position, spin and "spin" or "sway", nil, def.shape == "eel" and 60 or nil)
 end
 
 local function eggDrawing(parent, eggDef, size, position)
@@ -1449,9 +1451,10 @@ local hatchFlash = new("Frame", {
 local hatchQueue = {}
 local hatching = false
 
-local function playHatch(eggId, petId)
+-- bossDrop = the Mythic from the Leviathan: no egg, a bigger reveal instead
+local function playHatch(eggId, petId, bossDrop)
 	local eggDef, def = Config.GetEgg(eggId), Config.GetPet(petId)
-	if not eggDef or not def then
+	if not def or (not eggDef and not bossDrop) then
 		return
 	end
 	hatching = true
@@ -1460,18 +1463,39 @@ local function playHatch(eggId, petId)
 	end
 	hatchOverlay.Visible = true
 
-	local egg = eggDrawing(hatchStage, eggDef, UDim2.new(0, 170, 0, 215), UDim2.fromScale(0.5, 0.4))
-	for i = 1, 8 do
-		local angle = (i % 2 == 0 and 1 or -1) * (6 + i * 2)
-		local tween = TweenService:Create(egg, TweenInfo.new(0.22 - i * 0.015), { Rotation = angle })
-		tween:Play()
-		tween.Completed:Wait()
+	if eggDef then
+		local egg = eggDrawing(hatchStage, eggDef, UDim2.new(0, 170, 0, 215), UDim2.fromScale(0.5, 0.4))
+		for i = 1, 8 do
+			local angle = (i % 2 == 0 and 1 or -1) * (6 + i * 2)
+			local tween = TweenService:Create(egg, TweenInfo.new(0.22 - i * 0.015), { Rotation = angle })
+			tween:Play()
+			tween.Completed:Wait()
+		end
+		egg:Destroy()
+	else
+		task.wait(0.4)
 	end
 	hatchFlash.BackgroundTransparency = 0
-	egg:Destroy()
 	TweenService:Create(hatchFlash, TweenInfo.new(0.6), { BackgroundTransparency = 1 }):Play()
 
 	local rarity = Config.PetRarities[def.rarity]
+	if def.rarity >= 6 then
+		sunburst(hatchStage, rarity.color, 420, UDim2.fromScale(0.5, 0.36), 0)
+		for i = 1, 6 do
+			local a = i * math.pi / 3
+			sparkle(hatchStage, UDim2.new(0.5, math.cos(a) * 160 - 10, 0.36, math.sin(a) * 150 - 10), 20)
+		end
+		text({
+			Position = UDim2.new(0, 0, 0, -44),
+			Size = UDim2.new(1, 0, 0, 40),
+			Text = bossDrop and "LEVIATHAN DROP!" or "MYTHIC!",
+			TextColor3 = rarity.color,
+			Font = Enum.Font.FredokaOne,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			MaxTextSize = 38,
+			Parent = hatchStage,
+		})
+	end
 	local glow = new("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.36),
@@ -1504,10 +1528,11 @@ local function playHatch(eggId, petId)
 	text({
 		Position = UDim2.new(0, 0, 0, 350),
 		Size = UDim2.new(1, 0, 0, 18),
-		Text = Config.DescribeBonus(def.bonus),
+		Text = Config.DescribeBonus(def.bonus) .. (def.ability and ("  |  " .. def.ability.name .. ": " .. def.ability.desc) or ""),
 		TextColor3 = THEME.gold,
 		Font = Enum.Font.GothamBold,
 		TextXAlignment = Enum.TextXAlignment.Center,
+		TextWrapped = true,
 		MaxTextSize = 16,
 		Parent = hatchStage,
 	})
@@ -1525,7 +1550,7 @@ local function playHatch(eggId, petId)
 	hatching = false
 	local nextHatch = table.remove(hatchQueue, 1)
 	if nextHatch then
-		task.spawn(playHatch, nextHatch[1], nextHatch[2])
+		task.spawn(playHatch, nextHatch[1], nextHatch[2], nextHatch[3])
 	end
 end
 
@@ -2019,9 +2044,11 @@ local function renderPets()
 			text({
 				Position = UDim2.new(0, 6, 0, 143),
 				Size = UDim2.new(1, -12, 0, 16),
-				Text = mutation and (Config.WeatherTiers[mutation.tier].name .. ": " .. mutation.ability.name) or "No ability (mutate in weather)",
-				Font = mutation and Enum.Font.FredokaOne or Enum.Font.GothamBold,
-				TextColor3 = mutation and mutation.color or Color3.fromRGB(95, 115, 135),
+				Text = mutation and (Config.WeatherTiers[mutation.tier].name .. ": " .. mutation.ability.name)
+					or (def.ability and ("MYTHIC: " .. def.ability.name))
+					or "No ability (mutate in weather)",
+				Font = (mutation or def.ability) and Enum.Font.FredokaOne or Enum.Font.GothamBold,
+				TextColor3 = mutation and mutation.color or (def.ability and Config.PetRarities[6].color) or Color3.fromRGB(95, 115, 135),
 				TextXAlignment = Enum.TextXAlignment.Center,
 				MaxTextSize = 11,
 				Parent = box,
@@ -4241,6 +4268,11 @@ Notify.OnClientEvent:Connect(function(msg)
 	elseif kind == "kill" then
 		if msg.boss then
 			showSplash("LEVIATHAN SLAIN!", Color3.fromRGB(60, 255, 230))
+			if msg.pity and msg.pity > 0 then
+				local mythic = Config.GetPet(Config.MythicDrop.pet)
+				toast(string.format('No %s this time. <font color="%s">Guaranteed in %d more Leviathan kills.</font>', mythic.name,
+					hex(Config.PetRarities[6].color), Config.MythicDrop.pity - msg.pity), Config.PetRarities[6].color, 6)
+			end
 		end
 		toast(string.format('Defeated %s  <font color="#%s">+%s coins</font>%s', msg.enemy, THEME.gold:ToHex(),
 			Config.FormatNumber(msg.coins), msg.pearls and ("  +" .. msg.pearls .. " pearls") or ""), Color3.fromRGB(255, 120, 120), 2)
@@ -4254,9 +4286,9 @@ Notify.OnClientEvent:Connect(function(msg)
 		end
 	elseif kind == "hatch" then
 		if hatching then
-			table.insert(hatchQueue, { msg.egg, msg.pet })
+			table.insert(hatchQueue, { msg.egg, msg.pet, msg.boss })
 		else
-			task.spawn(playHatch, msg.egg, msg.pet)
+			task.spawn(playHatch, msg.egg, msg.pet, msg.boss)
 		end
 	elseif kind == "released" then
 		local def = Config.GetPet(msg.pet)

@@ -392,11 +392,12 @@ check(sD.season.claimed["mystic:20"] == true, "mystic rewards granted")
 local mythic = 0
 for _, pet in ipairs(sD.pets) do
 	local def = Config.GetPet(pet.id)
-	if def and def.rarity == 6 then
+	if def and def.rarity == 5 and (pet.id == "MysticJelly" or pet.id == "AstralOctopus" or pet.id == "MysticLeviathan") then
 		mythic += 1
 	end
+	check(not (def and def.rarity == 6), "season pass never gives a Mythic")
 end
-check(mythic == 3, "3 Mythic pets from the Mystic track, got " .. mythic)
+check(mythic == 3, "3 Legendary pets from the Mystic track, got " .. mythic)
 check(table.find(sD.weapons, "MysticTrident") ~= nil, "Mystic Trident given")
 check(#sD.equipped == 3, "season pets auto-equipped into free slots")
 
@@ -1291,6 +1292,101 @@ for g, list in ipairs(groups) do
 end
 check(true, "every ability ran without errors")
 
+-- ======================= ROUND 8: the boss-only Mythic pet =======================
+local mythicIds = {}
+for _, def in ipairs(Config.Pets) do
+	if def.rarity == 6 then table.insert(mythicIds, def.id) end
+end
+check(#mythicIds == 1 and mythicIds[1] == Config.MythicDrop.pet, "exactly one Mythic pet, the Leviathan drop")
+local mythicDef = Config.GetPet(Config.MythicDrop.pet)
+check(mythicDef.egg == nil and not mythicDef.season and mythicDef.weight == 0, "Mythic can't hatch from eggs or the season pass")
+check(Models.Build(mythicDef, 1) ~= nil, "Mythic pet model builds")
+
+-- a player 1 kill away from guaranteed: beating the Leviathan gives the Mythic
+presetData["player_60"] = { starterGiven = true, tutorial = { step = 99 }, coins = 0, level = 30,
+	weapons = { "MysticTrident" }, weapon = "MysticTrident", stats = { mythicPity = Config.MythicDrop.pity - 1 } }
+local L = makePlayer(60, "Lev")
+join(L)
+local _, lHrp, lHum = giveCharacter(L, CFrame.new(0, 5, 0))
+act(L, "EquipWeapon", "MysticTrident")
+fire(portal("The Abyss"), L)
+local function findBoss()
+	for _, obj in ipairs(created) do
+		if obj.Name == "Leviathan" and obj.ClassName == "Model" and not rawget(obj, "__destroyed") then
+			return obj
+		end
+	end
+end
+for _ = 1, 1600 do
+	if findBoss() then break end
+	fakeClock += 0.25
+	heartbeat(0.25)
+	lHum.Health = lHum.MaxHealth
+end
+local boss = findBoss()
+check(boss ~= nil, "Leviathan is up for the Mythic test")
+local lTool = L:FindFirstChildOfClass("Backpack"):FindFirstChildOfClass("Tool")
+clearNotes()
+announcements = {}
+for _ = 1, 3000 do
+	if not boss or rawget(boss, "__destroyed") or lastNotify(60, "hatch") then break end
+	local bp = boss.PrimaryPart.CFrame.Position
+	lHrp.CFrame = CFrame.lookAt(bp + Vector3.new(0, 0, 6), bp)
+	fakeClock += 0.4
+	handlers(lTool.Activated)[1]()
+	heartbeat(0.05)
+	runDelayed()
+	lHum.Health = lHum.MaxHealth
+end
+local drop = lastNotify(60, "hatch")
+check(drop ~= nil and drop.pet == Config.MythicDrop.pet and drop.boss == true, "beating the Leviathan at max pity drops the Mythic")
+local hasMythic = false
+for _, pet in ipairs(lastState[60].pets) do
+	if pet.id == Config.MythicDrop.pet then hasMythic = true end
+end
+check(hasMythic, "Mythic pet is in the tank")
+check(lastState[60].stats == nil or lastState[60].stats.mythicPity == nil or lastState[60].stats.mythicPity == 0, "pity resets after the drop")
+local told = false
+for _, an in ipairs(announcements) do
+	if string.find(an.text or "", "MYTHIC") then told = true end
+end
+check(told, "whole server is told about the Mythic drop")
+leave(L)
+
+-- the Mythic's built-in Tidal Roar fights on its own, no weather mutation needed
+presetData["player_61"] = { starterGiven = true, tutorial = { step = 99 }, coins = 0, level = 10,
+	pets = { { uid = 1, id = Config.MythicDrop.pet } }, equipped = { 1 }, nextPetUid = 2 }
+local R = makePlayer(61, "Roar")
+join(R)
+giveCharacter(R, CFrame.new(0, 5, 0))
+fire(portal("Sunlit"), R)
+local rHum, rHrp = R.Character:FindFirstChildOfClass("Humanoid"), R.Character.PrimaryPart
+clearNotes()
+for _ = 1, 240 do
+	fakeClock += 0.25
+	heartbeat(0.25)
+	local nearest, nd = nil, math.huge
+	for _, obj in ipairs(created) do
+		if (obj.Name == "SnappyCrab" or obj.Name == "StingJelly") and obj.ClassName == "Model" and not rawget(obj, "__destroyed") then
+			local d = (obj.PrimaryPart.CFrame.Position - rHrp.CFrame.Position).Magnitude
+			if d < nd then nearest, nd = obj, d end
+		end
+	end
+	if nearest then
+		local p = nearest.PrimaryPart.CFrame.Position
+		rHrp.CFrame = CFrame.new(Vector3.new(p.X, 4, p.Z) + Vector3.new(0, 0, 8))
+	end
+	if rHum.Health < 50 then rHum.Health = rHum.MaxHealth end
+	runSleeping()
+	runDelayed()
+end
+local roarKills = 0
+for _, n in ipairs(notifications[61] or {}) do
+	if n.kind == "kill" then roarKills += 1 end
+end
+check(roarKills >= 3, "Elder Leviathan's Tidal Roar kills creatures on its own: " .. roarKills)
+leave(R)
+
 -- every pass and product has a 3D icon
 local missingIcons = {}
 for _, list in ipairs({ Config.GamePasses, Config.Products }) do
@@ -1383,7 +1479,8 @@ local kinds = {
 	{ kind = "kraken", coins = 500, pearls = 6, hits = 30, egg = true }, { kind = "bought", sub = "Brass Bell" },
 	{ kind = "error", text = "nope" }, { kind = "info", text = "fyi" }, { kind = "egg", egg = "Kelp" },
 	{ kind = "levelup", level = 10, tradeUnlocked = true }, { kind = "hatch", egg = "Kelp", pet = "KelpDragon" },
-	{ kind = "hatch", egg = "Abyss", pet = "LeviathanPup" }, { kind = "released", pet = "Clownfish", coins = 25 },
+	{ kind = "hatch", egg = "Abyss", pet = "LeviathanPup" }, { kind = "hatch", pet = "ElderLeviathan", boss = true },
+	{ kind = "kill", enemy = "THE LEVIATHAN", coins = 50000, pearls = 20, boss = true, pity = 40 }, { kind = "released", pet = "Clownfish", coins = 25 },
 	{ kind = "soldSpares", count = 3, coins = 90 }, { kind = "tradeRequest", from = "Bob", fromUserId = 2 },
 	{ kind = "trade", partner = "Bob", mine = { { kind = "part", id = "FishingSkiff/Hull", amount = 1 } },
 		theirs = { { kind = "pet", id = 4, petId = "Octopus", amount = 1 }, { kind = "egg", id = "Kelp", amount = 2 } },

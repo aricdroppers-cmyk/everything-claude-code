@@ -174,7 +174,7 @@ Config.PetRarities = {
 	{ name = "Rare", color = Color3.fromRGB(80, 165, 255), releaseValue = 600 },
 	{ name = "Epic", color = Color3.fromRGB(185, 105, 255), releaseValue = 3000 },
 	{ name = "Legendary", color = Color3.fromRGB(255, 195, 50), releaseValue = 12000 },
-	{ name = "Mythic", color = Color3.fromRGB(255, 90, 220), releaseValue = 50000 }, -- Mystic season pass only
+	{ name = "Mythic", color = Color3.fromRGB(255, 90, 220), releaseValue = 50000 }, -- only from beating the Leviathan boss
 }
 
 local function rgb(r, g, b)
@@ -234,12 +234,24 @@ Config.Pets = {
 		color = rgb(60, 70, 110), accent = rgb(255, 240, 80), glow = true, bonus = { luck = 0.2, xp = 0.15 } },
 	{ id = "PearlDragon", name = "Pearl Dragon", egg = "Kraken", rarity = 5, weight = 3, shape = "eel",
 		color = rgb(245, 240, 255), accent = rgb(255, 180, 230), glow = true, bonus = { coins = 0.5, luck = 0.3, xp = 0.3 } },
+	-- MYTHIC: the ONLY Mythic pet. It never comes from an egg or the season pass:
+	-- it drops from beating THE LEVIATHAN (see Config.MythicDrop). It also has its
+	-- own built-in combat ability, even without a weather mutation.
+	{ id = "ElderLeviathan", name = "Elder Leviathan", rarity = 6, weight = 0, shape = "eel", bossDrop = true,
+		color = rgb(30, 95, 130), accent = rgb(255, 95, 225), glow = true, bonus = { coins = 3.0, luck = 1.5, xp = 0.75 },
+		ability = { name = "Tidal Roar", kind = "nova", desc = "A huge roar that blasts every nearby creature and knocks them back.",
+			cooldown = 4, range = 30, damage = 3.5, knockback = 10 } },
 }
+
+-- Beating the Leviathan: each player who did at least minDamageShare of its
+-- health rolls `chance` for the Mythic pet. Bad luck protection: you are
+-- guaranteed it after `pity` Leviathan kills without one.
+Config.MythicDrop = { pet = "ElderLeviathan", chance = 0.02, pity = 75, minDamageShare = 0.03 }
 
 ---------------------------------------------------------------------------
 -- SEASON PETS (only from the season pass). Each one has 3 versions: the
 -- normal one, a "Radiant" one after your 1st season prestige and a
--- "Celestial" one after your 2nd. Mythic (rarity 6) pets are Mystic-pass only.
+-- "Celestial" one after your 2nd. The best ones are Legendary (Mythic is boss-only).
 ---------------------------------------------------------------------------
 Config.SeasonPetBases = {
 	{ id = "CoralSprite", name = "Coral Sprite", rarity = 3, shape = "star",
@@ -252,12 +264,12 @@ Config.SeasonPetBases = {
 		color = rgb(30, 30, 60), accent = rgb(255, 205, 70), glow = true, bonus = { coins = 0.6, luck = 0.3 } },
 	{ id = "MysticMinnow", name = "Mystic Minnow", rarity = 5, shape = "fish",
 		color = rgb(150, 80, 230), accent = rgb(255, 140, 255), glow = true, bonus = { coins = 0.5, luck = 0.2 } },
-	{ id = "MysticJelly", name = "Mystic Jelly", rarity = 6, shape = "jelly",
+	{ id = "MysticJelly", name = "Mystic Jelly", rarity = 5, shape = "jelly",
 		color = rgb(200, 120, 255), accent = rgb(120, 255, 240), glow = true, bonus = { luck = 0.6, xp = 0.4 } },
-	{ id = "AstralOctopus", name = "Astral Octopus", rarity = 6, shape = "octopus",
+	{ id = "AstralOctopus", name = "Astral Octopus", rarity = 5, shape = "octopus",
 		color = rgb(40, 20, 90), accent = rgb(255, 120, 230), glow = true, bonus = { coins = 1.2, luck = 0.4 } },
-	{ id = "MysticLeviathan", name = "Mystic Leviathan", rarity = 6, shape = "eel",
-		color = rgb(90, 30, 160), accent = rgb(90, 255, 230), glow = true, bonus = { coins = 2.0, luck = 0.8, xp = 0.5 } },
+	{ id = "MysticLeviathan", name = "Mystic Leviathan", rarity = 5, shape = "eel",
+		color = rgb(90, 30, 160), accent = rgb(90, 255, 230), glow = true, bonus = { coins = 1.2, luck = 0.6, xp = 0.3 } },
 }
 Config.SeasonPetVariants = {
 	{ prefix = "", idPrefix = "", bonusMult = 1 },
@@ -518,7 +530,7 @@ Config.Products = {
 	{ key = "LevelPack", name = "+3 Levels", desc = "Instantly gain 3 levels.", price = 49, id = 0, levels = 3 },
 	{ key = "InstantRebirth", name = "Instant Rebirth", desc = "Rebirth right now, no level or coin requirement. You still get all the rebirth rewards.", price = 99, id = 0, rebirth = true },
 	{ key = "SeasonPremium", name = "Premium Season Pass", desc = "Unlocks the Premium reward track this season. +10% season XP.", price = 400, id = 0, seasonPass = "premium" },
-	{ key = "SeasonMystic", name = "Mystic Season Pass", desc = "Everything in Premium PLUS the Mystic track: 3 Mythic pets, the Mystic Trident (best weapon), the biggest rewards and +25% season XP.", price = 800, id = 0, seasonPass = "mystic",
+	{ key = "SeasonMystic", name = "Mystic Season Pass", desc = "Everything in Premium PLUS the Mystic track: 3 exclusive Legendary pets, the Mystic Trident (best weapon), the biggest rewards and +25% season XP.", price = 800, id = 0, seasonPass = "mystic",
 		-- Launch sale. The price players pay is the one you set in the Creator Dashboard
 		-- (set it to 800). After saleEnds the "20% OFF" label hides itself, so set the
 		-- dashboard price back to originalPrice then. saleEnds is a UTC time
