@@ -347,6 +347,19 @@ local function encode(v)
 end
 local HttpService = newMock("HttpService")
 HttpService.JSONEncode = function(_, v) return encode(v) end
+local tagged = {}
+local CollectionServiceFake = newMock("CollectionService")
+CollectionServiceFake.AddTag = function(_, obj, tag)
+	tagged[tag] = tagged[tag] or {}
+	table.insert(tagged[tag], obj)
+end
+CollectionServiceFake.GetTagged = function(_, tag)
+	local list = {}
+	for _, obj in ipairs(tagged[tag] or {}) do
+		if not rawget(obj, "__destroyed") then table.insert(list, obj) end
+	end
+	return list
+end
 local tweens = {}
 local TweenServiceFake = newMock("TweenService")
 TweenServiceFake.Create = function(_, target, info, props)
@@ -365,6 +378,7 @@ local services = {
 	ReplicatedStorage = ReplicatedStorage,
 	HttpService = HttpService,
 	TweenService = TweenServiceFake,
+	CollectionService = CollectionServiceFake,
 }
 local game = newMock("game")
 game.GetService = function(_, name)
@@ -373,6 +387,9 @@ game.GetService = function(_, name)
 end
 local workspace = newMock("workspace")
 workspace.GetServerTimeNow = function() return fakeNow end
+local fakeCamera = newMock("Camera")
+fakeCamera.ViewportSize = { X = 844, Y = 390 } -- a phone in landscape
+workspace.CurrentCamera = fakeCamera
 
 local Random = {
 	new = function()

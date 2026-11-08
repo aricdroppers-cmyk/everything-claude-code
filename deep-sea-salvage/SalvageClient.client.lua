@@ -2399,27 +2399,6 @@ end
 ---------------------------------------------------------------------------
 -- DAILY LOGIN STREAK (gift button + popup)
 ---------------------------------------------------------------------------
-local dailyButton = button({
-	Position = UDim2.new(0, 12, 0, 60),
-	Size = UDim2.new(0, 108, 0, 42),
-	Text = "DAILY",
-	BackgroundColor3 = THEME.bg,
-	TextColor3 = THEME.gold,
-	MaxTextSize = 17,
-	Parent = gui,
-})
-stroke(dailyButton, THEME.gold, 2, 0.15)
-local dailyDot = new("Frame", {
-	AnchorPoint = Vector2.new(0.5, 0.5),
-	Position = UDim2.new(1, -4, 0, 4),
-	Size = UDim2.new(0, 20, 0, 20),
-	BackgroundColor3 = THEME.danger,
-	Visible = false,
-	Parent = dailyButton,
-})
-corner(dailyDot, 10)
-text({ Size = UDim2.fromScale(1, 1), Text = "!", Font = Enum.Font.GothamBlack, TextXAlignment = Enum.TextXAlignment.Center, Parent = dailyDot })
-
 local dailyPopup = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	Position = UDim2.fromScale(0.5, 0.5),
@@ -2560,13 +2539,13 @@ local function openDaily()
 	dailyPopup.Visible = true
 	renderDaily()
 end
-dailyButton.MouseButton1Click:Connect(function()
+local function toggleDaily()
 	if dailyPopup.Visible then
 		dailyPopup.Visible = false
 	else
 		openDaily()
 	end
-end)
+end
 
 ---------------------------------------------------------------------------
 -- GETTING HIT: red flash + small camera shake
@@ -2946,6 +2925,7 @@ local Lighting = game:GetService("Lighting")
 local underwaterCC = nil
 local savedLook = nil
 local currentArena = nil
+local arenaTipShown = false
 
 local function setUnderwater(arenaDef)
 	local atmosphere = Lighting:FindFirstChild("SalvageAtmosphere")
@@ -3008,6 +2988,10 @@ local function updateArenaLook()
 	if found ~= currentArena then
 		currentArena = found
 		setUnderwater(found)
+		if found and not arenaTipShown then
+			arenaTipShown = true
+			toast("Take out your weapon (press 1 or tap it at the bottom), then click or tap to attack creatures!", THEME.gold, 8)
+		end
 	end
 end
 
@@ -3084,9 +3068,10 @@ end)
 -- SIDE MENU
 ---------------------------------------------------------------------------
 local function makeMenu(items, onRight)
+	local buttons = {}
 	local holder = new("Frame", {
 		AnchorPoint = Vector2.new(onRight and 1 or 0, 0.5),
-		Position = UDim2.new(onRight and 1 or 0, onRight and -12 or 12, 0.5, 20),
+		Position = UDim2.new(onRight and 1 or 0, onRight and -12 or 12, 0.5, 45), -- a bit low so Roblox's chat box never covers it
 		Size = UDim2.new(0, 108, 0, #items * 46 + (#items - 1) * 7),
 		BackgroundTransparency = 1,
 		Parent = gui,
@@ -3104,23 +3089,106 @@ local function makeMenu(items, onRight)
 		})
 		stroke(b, item.color, 2, 0.15)
 		b.MouseButton1Click:Connect(item.action)
+		buttons[item.label] = b
 	end
+	return holder, buttons
 end
 
-makeMenu({
+local leftMenu, leftButtons = makeMenu({
+	{ label = "DAILY", color = THEME.gold, action = function() toggleDaily() end },
 	{ label = "FLEET", color = THEME.accent, action = function() openPanel("Fleet") end },
 	{ label = "SHOP", color = Color3.fromRGB(80, 200, 110), action = function() openPanel("Shop") end },
 	{ label = "PETS", color = Color3.fromRGB(255, 130, 200), action = function() openPanel("Pets") end },
 	{ label = "LOGBOOK", color = Color3.fromRGB(165, 120, 255), action = function() openPanel("Logbook") end },
 	{ label = "QUESTS", color = Color3.fromRGB(120, 200, 255), action = function() openPanel("Quests") end },
 }, false)
-makeMenu({
+local rightMenu = makeMenu({
 	{ label = "SEASON", color = Color3.fromRGB(255, 90, 220), action = function() openPanel("Season") end },
 	{ label = "STORE", color = THEME.gold, action = function() openPanel("Store") end },
 	{ label = "REBIRTH", color = Color3.fromRGB(255, 160, 60), action = function() openPanel("Rebirth") end },
 	{ label = "TRADE", color = Color3.fromRGB(230, 140, 40), action = function() openPanel("Trade") end },
 	{ label = "MY BAY", color = THEME.text, action = function() Action:FireServer("GoToBay") end },
 }, true)
+
+local dailyDot = new("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.new(1, -4, 0, 4),
+	Size = UDim2.new(0, 20, 0, 20),
+	BackgroundColor3 = THEME.danger,
+	Visible = false,
+	ZIndex = 3,
+	Parent = leftButtons.DAILY,
+})
+corner(dailyDot, 10)
+text({ Size = UDim2.fromScale(1, 1), Text = "!", Font = Enum.Font.GothamBlack, TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 3, Parent = dailyDot })
+
+---------------------------------------------------------------------------
+-- FIT ANY SCREEN: shrink the HUD on small screens (phones) so nothing overlaps
+---------------------------------------------------------------------------
+local scalers = {}
+for _, guiObject in ipairs({ topBar, banner, toastHolder, leftMenu, rightMenu, boostHolder, requestPopup, hatchStage, dailyPopup }) do
+	table.insert(scalers, new("UIScale", { Parent = guiObject }))
+end
+local function updateScale()
+	local camera = workspace.CurrentCamera
+	local size = camera and camera.ViewportSize
+	local w = size and size.X or 1280
+	local h = size and size.Y or 720
+	local scale = math.clamp(math.min(w / 1280, h / 720), 0.55, 1)
+	for _, scaler in ipairs(scalers) do
+		scaler.Scale = scale
+	end
+end
+updateScale()
+if workspace.CurrentCamera then
+	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
+end
+
+---------------------------------------------------------------------------
+-- NEW PLAYER GUIDE: a glowing line to your waiting crate (first 25 hauls)
+---------------------------------------------------------------------------
+local CollectionService = game:GetService("CollectionService")
+local guideFrom = new("Attachment", { Name = "SalvageGuideFrom" })
+local guideTo = new("Attachment", { Name = "SalvageGuideTo" })
+local guideBeam = new("Beam", {
+	Attachment0 = guideFrom,
+	Attachment1 = guideTo,
+	Color = ColorSequence.new(THEME.gold),
+	Width0 = 0.5,
+	Width1 = 0.5,
+	FaceCamera = true,
+	LightEmission = 1,
+	Transparency = NumberSequence.new(0.25),
+	Enabled = false,
+})
+local guideTipShown = false
+local function updateGuide()
+	local character = player.Character
+	local hrp = character and character:FindFirstChild("HumanoidRootPart")
+	local best, bestDistance = nil, math.huge
+	if hrp and state and (state.hauls or 0) < 25 then
+		for _, crate in ipairs(CollectionService:GetTagged("SalvageCrate")) do
+			if crate:GetAttribute("Owner") == player.UserId and crate.Parent then
+				local distance = (crate.Position - hrp.Position).Magnitude
+				if distance < bestDistance then
+					best, bestDistance = crate, distance
+				end
+			end
+		end
+	end
+	if best and bestDistance > 14 then
+		guideFrom.Parent = hrp
+		guideTo.Parent = best
+		guideBeam.Parent = hrp
+		guideBeam.Enabled = true
+		if not guideTipShown then
+			guideTipShown = true
+			toast("A crate is waiting! Follow the golden line back to your bay.", THEME.gold, 6)
+		end
+	else
+		guideBeam.Enabled = false
+	end
+end
 
 ---------------------------------------------------------------------------
 -- SERVER -> CLIENT
@@ -3324,7 +3392,7 @@ Notify.OnClientEvent:Connect(function(msg)
 		renderPanel()
 	elseif kind == "welcome" then
 		toast("Welcome to Deep Sea Salvage! Your sub is already diving.", THEME.accent, 7)
-		toast("When it surfaces, hold E on the crate at your bay to haul it up.", THEME.accent, 8)
+		toast("When it surfaces, hold E (or tap the button on a phone) on the crate at your bay to haul it up.", THEME.accent, 8)
 		if not msg.canSave then
 			toast("Saving is OFF on this server (see README: enable API Services).", THEME.danger, 8)
 		end
@@ -3341,6 +3409,7 @@ while true do
 	refreshBanner()
 	updateBoostPills()
 	updateArenaLook()
+	updateGuide()
 	dailyDot.Visible = state ~= nil and state.login ~= nil and state.login.canClaim
 	if state and state.login and secondsLeft(state.login.nextIn) < -2 then
 		state.login.nextIn = 1e9

@@ -29,8 +29,9 @@ has changed, and `SalvageModels` is new.
 ## How to play
 
 ### Salvage (the core loop)
-- Your subs dive on their own. When one surfaces, hold **E** on the crate at
-  your bay. Deeper zones give better loot but carry a higher breach risk.
+- Your subs dive on their own. When one surfaces, hold **E** (or tap the
+  button on a phone) on the crate at your bay. For their first 25 hauls, new
+  players see a **golden guide line** leading to their waiting crate. Deeper zones give better loot but carry a higher breach risk.
 - **FLEET** sets dive depths, **SHOP > SUBS** sells better subs (up to 5), and
   **LOGBOOK** tracks ship fragments. A completed ship floats at your bay and
   gives a permanent coin bonus.
@@ -223,6 +224,11 @@ Simulated pacing (hauling only, no pets or boosts):
 1,000-2,000 season XP an hour, plus about 1,200 a day from daily quests. That
 works out to about 15-25 hours for the full pass, and 50+ hours for both
 prestiges. Tune `Config.Season.xpPerTier` once you see real numbers.
+
+## Screens and phones
+The HUD shrinks automatically on small screens (down to 55% size), so the
+menus, timers and pop-ups never overlap on a phone. The DAILY button is in the
+left menu, away from Roblox's chat window.
 
 ## Saving
 - Progress is saved **every minute** (spread out across players so Roblox's

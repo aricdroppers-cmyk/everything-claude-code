@@ -976,6 +976,28 @@ if awesome then
 	click(awesome, "hatch continue")
 end
 
+-- phone-sized screen: HUD scales down
+local smallest = 1
+for _, obj in ipairs(created) do
+	if obj.ClassName == "UIScale" and type(obj.Scale) == "number" then
+		smallest = math.min(smallest, obj.Scale)
+	end
+end
+check(smallest < 0.6, "HUD shrinks on a phone screen (scale " .. smallest .. ")")
+
+-- new player guide line to a waiting crate
+local guideOn = false
+for _ = 1, 30 do
+	tick(1)
+	for _, obj in ipairs(created) do
+		if obj.ClassName == "Beam" and obj.Enabled == true then
+			guideOn = true
+		end
+	end
+	if guideOn then break end
+end
+check(guideOn or (lastState[1].hauls or 0) >= 25, "guide line points new players to their crate")
+
 -- getting hit: flash + shake handler
 local aHum = A.Character:FindFirstChildOfClass("Humanoid")
 aHum.Health = 100

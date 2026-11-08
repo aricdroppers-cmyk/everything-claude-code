@@ -20,6 +20,7 @@ local DataStoreService = game:GetService("DataStoreService")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local Lighting = game:GetService("Lighting")
+local CollectionService = game:GetService("CollectionService")
 local MarketplaceService = game:GetService("MarketplaceService")
 
 local Config = require(ReplicatedStorage:WaitForChild("SalvageConfig"))
@@ -1228,6 +1229,7 @@ local function pushState(session)
 		multiplier = mult.coins,
 		multipliers = mult,
 		pity = data.pity,
+		hauls = data.stats.hauls,
 		level = data.level,
 		bestLevel = data.bestLevel,
 		xp = data.xp,
@@ -1498,6 +1500,8 @@ local function spawnCrate(session, index)
 		glow.Parent = egg
 	end
 	local prompt = Instance.new("ProximityPrompt")
+	crate:SetAttribute("Owner", session.player.UserId)
+	CollectionService:AddTag(crate, "SalvageCrate") -- the client draws a guide line to it for new players
 	prompt.ActionText = "Haul Up"
 	prompt.ObjectText = session.player.DisplayName .. "'s " .. rarityDef.name .. " Crate"
 	prompt.HoldDuration = rarityDef.holdTime
