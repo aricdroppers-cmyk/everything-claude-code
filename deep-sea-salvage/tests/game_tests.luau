@@ -1035,9 +1035,18 @@ check(sW.maxPets == 100, "Bigger Pet Tank: 100 pets")
 check(sW.eggCapacity == 50 and sW.spareCapacity == 300, "2x Storage doubles eggs and spares")
 check(math.abs(sW.multipliers.damage - dmgBefore * 2) < 1e-6, "2x Weapon Damage doubles damage")
 
--- weather: force the next weather to always mutate, then wait for it
+-- weather: pick chances are real probabilities with clear skies left over
+local chanceSum = 0
 for _, w in ipairs(Config.Weather.types) do
+	chanceSum += w.chance
+end
+check(chanceSum < 1, "some weather rolls are clear skies (" .. math.floor((1 - chanceSum) * 100 + 0.5) .. "%)")
+check(Config.Weather.interval == 600, "weather rolls every 10 minutes")
+local savedChances = {}
+for i, w in ipairs(Config.Weather.types) do
+	savedChances[i] = { w.chance, w.crateChance, w.petChance }
 	w.crateChance, w.petChance = 1, 1
+	w.chance = i == 1 and 1 or 0 -- force a Thunderstorm for the test
 end
 local remotesFolder = ReplicatedStorage:FindFirstChild("SalvageRemotes")
 local weatherSeen = nil
@@ -1045,7 +1054,7 @@ for _ = 1, 40 do -- let any weather that's already going finish first, so we cat
 	if (remotesFolder:GetAttribute("Weather") or "") == "" then break end
 	tick(5)
 end
-for _ = 1, 70 do
+for _ = 1, 260 do
 	tick(5)
 	local id = remotesFolder:GetAttribute("Weather")
 	if id and id ~= "" then
@@ -1080,9 +1089,73 @@ for _ = 1, 30 do
 	tick(5)
 end
 check((remotesFolder:GetAttribute("Weather") or "") == "", "weather ends")
-for _, w in ipairs(Config.Weather.types) do
-	w.crateChance, w.petChance = 0.1, 0.01
+for i, w in ipairs(Config.Weather.types) do
+	w.chance, w.crateChance, w.petChance = savedChances[i][1], savedChances[i][2], savedChances[i][3]
 end
+
+-- pet abilities: a player whose pets are already Frozen, Golden and Rainbow
+leave(W)
+presetData["player_31"] = {
+	starterGiven = true, tutorial = { step = 99 }, coins = 0, level = 8,
+	pets = { { uid = 1, id = "Clownfish", mutation = "Frozen" }, { uid = 2, id = "Starfish", mutation = "Golden" },
+		{ uid = 3, id = "HermitCrab", mutation = "Rainbow" }, { uid = 4, id = "Pufferfish", mutation = "Electric" } },
+	equipped = { 1, 2, 3 }, nextPetUid = 5,
+}
+local X = makePlayer(31, "Xan")
+join(X)
+act(X, "Buy", "PetSlots")
+act(X, "EquipPet", 4)
+check(#lastState[31].equipped == 4, "4 mutated pets equipped (Electric, Frozen, Golden, Rainbow)")
+check(string.find(X.attrs.EquippedPets or "", "Rainbow") ~= nil, "mutations show on followers")
+local yellowBolts = 0
+fire(portal("Sunlit"), X)
+local xHum = X.Character:FindFirstChildOfClass("Humanoid")
+local xHrp = X.Character.PrimaryPart
+local neonBefore = 0
+for _, obj in ipairs(created) do
+	if obj.ClassName == "Part" and obj.Material == Enum.Material.Neon then neonBefore += 1 end
+end
+local healed, abilityKill = false, nil
+for _ = 1, 600 do
+	fakeClock += 0.25
+	heartbeat(0.25)
+	-- stand in the middle of the hunting ground, never swing
+	xHrp.CFrame = CFrame.new(Config.ArenaCenter(1) + Vector3.new(0, 4, 0))
+	if xHum.Health < 30 or xHum.Health >= xHum.MaxHealth - 1 then
+		xHum.Health = xHum.MaxHealth * 0.5 -- keep room to see the Rainbow heal
+	end
+	local h0 = xHum.Health
+	runSleeping()
+	runDelayed()
+	if xHum.Health > h0 + 0.5 then healed = true end
+	if yellowBolts == 0 then
+		for i = #created, math.max(1, #created - 80), -1 do
+			local obj = created[i]
+			if obj.ClassName == "Part" and obj.Material == Enum.Material.Neon and obj.Color == Config.Mutations.Electric.color then
+				yellowBolts += 1
+			end
+		end
+	end
+	abilityKill = abilityKill or lastNotify(31, "kill")
+	if healed and abilityKill then break end
+end
+local neonAfter = 0
+for _, obj in ipairs(created) do
+	if obj.ClassName == "Part" and obj.Material == Enum.Material.Neon then neonAfter += 1 end
+end
+check(abilityKill ~= nil, "mutated pets kill creatures on their own (no swinging)")
+check(healed, "Rainbow Prism Beam heals the player")
+check(neonAfter > neonBefore, "ability bolts and bursts are drawn")
+check(yellowBolts > 0, "Chain Lightning bolts are drawn")
+if abilityKill then
+	local def
+	for _, e in ipairs(Config.Enemies) do
+		if e.name == abilityKill.enemy then def = e end
+	end
+	local expected = math.floor(def.coins * lastState[31].multiplier * 1.5)
+	check(abilityKill.coins == expected, "Golden pet: kills give +50% coins (" .. abilityKill.coins .. " vs " .. expected .. ")")
+end
+leave(X)
 
 -- ======================= CLIENT: run the real UI against the real server =======================
 clientPlayer = A

@@ -113,27 +113,40 @@ gets darker the deeper you go.
   uploaded with each save.
 
 ### Weather and mutations
-- About every 5 minutes the weather changes for 2 minutes:
+- **Every 10 minutes** the weather might change for 2 minutes. Rarer weather
+  is less likely, and sometimes the skies just stay clear:
 
-  | Weather | Mutation | Haul value | Pet bonus | How common |
+  | Weather | Chance per roll | Mutation | Haul value | Pet ability |
   |---|---|---|---|---|
-  | Thunderstorm | Electrified | x2 | x1.25 | Common |
-  | Blizzard | Frozen | x3 | x1.35 | |
-  | Golden Rain | Golden | x5 | x1.5 | |
-  | Aurora | Rainbow | x10 | x2 | Rare |
+  | Thunderstorm | 35% | Electrified | x2 | **Chain Lightning**: zaps the nearest creature, jumps to 2 more |
+  | Blizzard | 25% | Frozen | x3 | **Frost Nova**: icy blast that hurts and slows nearby creatures |
+  | Golden Rain | 12% | Golden | x5 | **Midas Strike**: heavy golden hit, and your kills give +50% coins |
+  | Aurora | 4% | Rainbow | x10 | **Prism Beam**: rainbow beams hit 3 creatures and heal you |
+  | Clear skies | 24% | none | | |
 
 - Rain, snow, falling gold or aurora sparkles fall around you, with a banner
-  and a countdown. Thunderstorms also flash lightning.
-- **Mutated crates:** during weather, crates can come up mutated (glowing in
-  the mutation's color). That haul and its sold spares are worth the
-  multiplier.
-- **Mutated pets:** every 20 seconds, each equipped pet has a small chance to
-  mutate for good. It gets a stronger bonus, a glowing tinted look and a
-  higher release value.
-  - A pet only ever upgrades (an Electrified pet can become Golden, never the
-    other way round).
-  - Mutations carry over in trades, and everyone sees your mutated pets.
-- Edit chances and multipliers in `Config.Weather` and `Config.Mutations`.
+  and a countdown.
+- **Mutated crates:** during weather, crates can come up mutated (glowing,
+  labelled e.g. "GOLDEN x5"). That haul is worth the multiplier.
+- **Mutated pets are rare.** During weather each equipped pet has a tiny
+  chance to mutate. With 3 pets that's roughly:
+
+  | Mutation | About 1 per… |
+  |---|---|
+  | Electrified | 7 hours of play |
+  | Frozen | 15 hours |
+  | Golden | 50 hours |
+  | Rainbow | 190 hours |
+
+- A mutated pet keeps its mutation forever and gets:
+  - a stronger bonus (x1.25 to x2) and a higher release value
+  - a glowing tinted look
+  - **a combat ability** that fires by itself in the hunting grounds.
+    Ability damage scales with your weapon, so mutated pets stay useful.
+- Pets only ever upgrade (Electrified can become Golden, never the other way
+  round). Mutations carry over in trades, and everyone sees them.
+- Tune it all in `Config.Weather` (chances, `petChance`) and
+  `Config.Mutations` (multipliers, ability damage and cooldowns).
 
 ### Storage
 - You can hold **25 eggs** and **150 spare fragments**. The 2x Storage pass
@@ -336,15 +349,15 @@ None of these need uploaded animations:
 ## Testing
 `tests/run.sh` runs the real server **and** the real client inside a fake
 Roblox, with real 3D math. You need the free `luau` command line tool from
-https://github.com/luau-lang/luau/releases. It runs about 235 checks:
+https://github.com/luau-lang/luau/releases. It runs about 245 checks:
 - Gameplay: dives, levels, hatching, trading, the season pass (retroactive
   purchases, prestige scaling), quests, rebirth, all 3 Robux rebirth options,
   boosts and receipts (never granted twice), charms and Tide Bottles, portals,
   enemy AI, weapons, the Leviathan, all 3 random events, the daily streak
   (including missing a day), autosave, the global leaderboards, live prices,
   the combat animations, a brand-new player playing through the whole
-  tutorial, the group reward, storage limits, the new passes, and weather
-  mutating crates and pets.
+  tutorial, the group reward, storage limits, the new passes, weather
+  mutating crates and pets, and all 4 pet abilities fighting on their own.
 - Exploits: remote spam, using prompts from far away, teleporting into
   hunting grounds you're too low for, trading items you don't have, and the
   anti-cheat (speed hack, fly hack, kick after repeated strikes, no false

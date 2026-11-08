@@ -612,24 +612,37 @@ Config.GroupReward = {
 -- A pet only ever mutates to a better (higher tier) mutation.
 ---------------------------------------------------------------------------
 Config.Mutations = {
-	Electric = { name = "Electrified", tier = 1, color = rgb(255, 235, 80), coinMult = 2, petMult = 1.25 },
-	Frozen = { name = "Frozen", tier = 2, color = rgb(160, 230, 255), coinMult = 3, petMult = 1.35 },
-	Golden = { name = "Golden", tier = 3, color = rgb(255, 200, 40), coinMult = 5, petMult = 1.5 },
-	Rainbow = { name = "Rainbow", tier = 4, color = rgb(255, 110, 220), coinMult = 10, petMult = 2 },
+	Electric = { name = "Electrified", tier = 1, color = rgb(255, 235, 80), coinMult = 2, petMult = 1.25,
+		ability = { name = "Chain Lightning", desc = "Zaps the nearest creature and jumps to 2 more.",
+			cooldown = 4, range = 35, damage = 0.6, chains = 2 } },
+	Frozen = { name = "Frozen", tier = 2, color = rgb(160, 230, 255), coinMult = 3, petMult = 1.35,
+		ability = { name = "Frost Nova", desc = "Icy blast that hurts nearby creatures and slows them down.",
+			cooldown = 6, range = 18, damage = 0.8, slow = 0.35, slowTime = 3 } },
+	Golden = { name = "Golden", tier = 3, color = rgb(255, 200, 40), coinMult = 5, petMult = 1.5,
+		ability = { name = "Midas Strike", desc = "Heavy golden strike. Your kills give +50% coins.",
+			cooldown = 5, range = 30, damage = 1.5, coinBonus = 0.5 } },
+	Rainbow = { name = "Rainbow", tier = 4, color = rgb(255, 110, 220), coinMult = 10, petMult = 2,
+		ability = { name = "Prism Beam", desc = "Rainbow beams hit up to 3 creatures and heal you.",
+			cooldown = 3, range = 40, damage = 2.0, targets = 3, heal = 0.08 } },
 }
+-- Ability damage = your weapon's damage x ability.damage (so pets keep up as you upgrade).
+-- Abilities only fire in the hunting grounds, from each equipped mutated pet.
+
 Config.Weather = {
-	interval = 300, -- seconds between weather rolls
-	duration = 120,
+	interval = 600, -- every 10 minutes the weather MIGHT change...
+	duration = 120, -- ...for 2 minutes
 	petCheckEvery = 20, -- seconds between pet mutation rolls during weather
+	-- chance = how likely each weather is on a roll. Whatever is left over is
+	-- clear skies (here 24%). petChance = chance per equipped pet per check.
 	types = {
-		{ id = "Thunderstorm", name = "THUNDERSTORM", mutation = "Electric", weight = 40, crateChance = 0.25, petChance = 0.04,
-			desc = "Crates can come up ELECTRIFIED (x2 coins). Pets may mutate!" },
-		{ id = "Blizzard", name = "BLIZZARD", mutation = "Frozen", weight = 30, crateChance = 0.2, petChance = 0.03,
-			desc = "Crates can come up FROZEN (x3 coins). Pets may mutate!" },
-		{ id = "GoldenRain", name = "GOLDEN RAIN", mutation = "Golden", weight = 20, crateChance = 0.15, petChance = 0.02,
-			desc = "Crates can come up GOLDEN (x5 coins). Pets may mutate!" },
-		{ id = "Aurora", name = "AURORA", mutation = "Rainbow", weight = 10, crateChance = 0.1, petChance = 0.01,
-			desc = "Crates can come up RAINBOW (x10 coins)! Pets may mutate!" },
+		{ id = "Thunderstorm", name = "THUNDERSTORM", mutation = "Electric", chance = 0.35, crateChance = 0.2, petChance = 0.004,
+			desc = "Crates can come up ELECTRIFIED (x2 coins). Pets might gain Chain Lightning!" },
+		{ id = "Blizzard", name = "BLIZZARD", mutation = "Frozen", chance = 0.25, crateChance = 0.15, petChance = 0.0025,
+			desc = "Crates can come up FROZEN (x3 coins). Pets might gain Frost Nova!" },
+		{ id = "GoldenRain", name = "GOLDEN RAIN", mutation = "Golden", chance = 0.12, crateChance = 0.12, petChance = 0.0015,
+			desc = "Crates can come up GOLDEN (x5 coins). Pets might gain Midas Strike!" },
+		{ id = "Aurora", name = "AURORA", mutation = "Rainbow", chance = 0.04, crateChance = 0.08, petChance = 0.0012,
+			desc = "Crates can come up RAINBOW (x10 coins)! Pets might gain Prism Beam!" },
 	},
 }
 

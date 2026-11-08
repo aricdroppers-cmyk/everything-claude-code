@@ -1545,7 +1545,7 @@ local function renderPets()
 		end)
 	end
 
-	local petGrid = gridSection(6, UDim2.new(0, 150, 0, 214))
+	local petGrid = gridSection(6, UDim2.new(0, 150, 0, 234))
 	local sorted = {}
 	for _, pet in ipairs(state.pets) do
 		local def = Config.GetPet(pet.id)
@@ -1605,8 +1605,18 @@ local function renderPets()
 				MaxTextSize = 12,
 				Parent = box,
 			})
+			text({
+				Position = UDim2.new(0, 6, 0, 143),
+				Size = UDim2.new(1, -12, 0, 16),
+				Text = mutation and ("Ability: " .. mutation.ability.name) or "No ability (mutate in weather)",
+				Font = mutation and Enum.Font.GothamBlack or Enum.Font.Gotham,
+				TextColor3 = mutation and mutation.color or Color3.fromRGB(95, 115, 135),
+				TextXAlignment = Enum.TextXAlignment.Center,
+				MaxTextSize = 11,
+				Parent = box,
+			})
 			local equipButton = button({
-				Position = UDim2.new(0, 8, 0, 146),
+				Position = UDim2.new(0, 8, 0, 164),
 				Size = UDim2.new(1, -16, 0, 28),
 				Text = equipped and "UNEQUIP" or "EQUIP",
 				BackgroundColor3 = equipped and Color3.fromRGB(70, 75, 90) or Color3.fromRGB(40, 170, 90),
@@ -1617,7 +1627,7 @@ local function renderPets()
 				Action:FireServer("EquipPet", pet.uid)
 			end)
 			local releaseButton = button({
-				Position = UDim2.new(0, 8, 0, 178),
+				Position = UDim2.new(0, 8, 0, 198),
 				Size = UDim2.new(1, -16, 0, 26),
 				Text = releaseArmed[pet.uid] and "TAP AGAIN TO RELEASE"
 					or ("Release +" .. Config.FormatNumber(rarity.releaseValue * (mutation and mutation.coinMult or 1))),
@@ -3661,8 +3671,8 @@ Notify.OnClientEvent:Connect(function(msg)
 		local mutation = Config.Mutations[msg.mutation]
 		local def = Config.GetPet(msg.pet)
 		showSplash(petDisplayName(def, msg.mutation):upper() .. "!", mutation.color)
-		toast(string.format("Your %s mutated! Its bonus is now x%.2f and it's worth x%d.", def.name, mutation.petMult, mutation.coinMult),
-			mutation.color, 6)
+		toast(string.format("Your %s mutated! New ability: %s - %s Bonus x%.2f, worth x%d.", def.name, mutation.ability.name,
+			mutation.ability.desc, mutation.petMult, mutation.coinMult), mutation.color, 8)
 	elseif kind == "groupReward" then
 		showSplash("WELCOME TO THE CREW!", THEME.good)
 		for _, r in ipairs(msg.rewards) do

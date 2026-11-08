@@ -3346,7 +3346,15 @@ local function killEnemy(enemy)
 		local session = Sessions[player]
 		if session and session.loaded then
 			local data = session.data
-			local coins = math.floor(def.coins * coinMultiplier(session))
+			local coins = def.coins * coinMultiplier(session)
+			for _, pet in ipairs(equippedPets(data)) do
+				local ability = pet.mutation and Config.Mutations[pet.mutation].ability
+				if ability and ability.coinBonus then
+					coins *= 1 + ability.coinBonus
+					break
+				end
+			end
+			coins = math.floor(coins)
 			data.coins += coins
 			data.stats.kills += 1
 			if def.pearls then
@@ -3637,6 +3645,150 @@ local function equipWeapon(session, id)
 	end
 end
 
+
+---------------------------------------------------------------------------
+-- PET ABILITIES: mutated pets fight for you in the hunting grounds
+---------------------------------------------------------------------------
+local PET_SLOTS = { Vector3.new(-3.2, 0.4, 2.5), Vector3.new(3.2, 0.4, 2.5), Vector3.new(0, 1.3, 4.2),
+	Vector3.new(-5, 0.8, 4.5), Vector3.new(5, 0.8, 4.5) }
+
+-- jagged lightning-style bolt made of short neon pieces
+local function bolt(from, to, color, width, jag)
+	local points = { from }
+	local segments = 6
+	for i = 1, segments - 1 do
+		local p = from:Lerp(to, i / segments)
+		table.insert(points, p + Vector3.new(rng:NextNumber(-jag, jag), rng:NextNumber(-jag, jag), rng:NextNumber(-jag, jag)))
+	end
+	table.insert(points, to)
+	for i = 1, #points - 1 do
+		local a, b = points[i], points[i + 1]
+		local length = (b - a).Magnitude
+		if length > 0.05 then
+			local piece = makePart({
+				Size = Vector3.new(width, width, length),
+				CFrame = CFrame.lookAt((a + b) / 2, b),
+				Color = color,
+				Material = Enum.Material.Neon,
+				CanCollide = false,
+				CanQuery = false,
+			})
+			TweenService:Create(piece, TweenInfo.new(0.25), { Transparency = 1 }):Play()
+			task.delay(0.3, function()
+				piece:Destroy()
+			end)
+		end
+	end
+end
+
+local RAINBOW = {
+	Color3.fromRGB(255, 80, 80), Color3.fromRGB(255, 170, 60), Color3.fromRGB(255, 240, 80),
+	Color3.fromRGB(90, 255, 120), Color3.fromRGB(80, 170, 255), Color3.fromRGB(200, 110, 255),
+}
+
+local function enemiesNear(arena, position, range)
+	local list = {}
+	for _, enemy in ipairs(arena.enemies) do
+		if enemy.alive then
+			local d = (enemy.root.Position - position).Magnitude - enemy.radius
+			if d <= range then
+				table.insert(list, { enemy = enemy, distance = d })
+			end
+		end
+	end
+	table.sort(list, function(a, b)
+		return a.distance < b.distance
+	end)
+	return list
+end
+
+local function useAbility(session, info, mutationId, origin)
+	local mutation = Config.Mutations[mutationId]
+	local ability = mutation.ability
+	local arena = arenaAt(info.hrp.Position)
+	if not arena then
+		return false
+	end
+	local targets = enemiesNear(arena, origin, ability.range)
+	if #targets == 0 then
+		return false
+	end
+	local weapon = Config.GetWeapon(session.data.weapon)
+	local damage = weapon.damage * getMultipliers(session).damage * ability.damage
+
+	if mutationId == "Electric" then
+		-- chain: first target, then jump to the next closest ones
+		local from = origin
+		local hit = {}
+		local current = targets[1].enemy
+		for jump = 0, ability.chains do
+			if not current then
+				break
+			end
+			hit[current] = true
+			bolt(from, current.root.Position, mutation.color, 0.35, 1.6)
+			local nextFrom = current.root.Position
+			damageEnemy(current, session, damage * (jump == 0 and 1 or 0.7))
+			current = nil
+			for _, t in ipairs(enemiesNear(arena, nextFrom, 22)) do
+				if not hit[t.enemy] then
+					current = t.enemy
+					break
+				end
+			end
+			from = nextFrom
+		end
+	elseif mutationId == "Frozen" then
+		burst(info.hrp.Position, mutation.color, ability.range * 0.5)
+		for _, t in ipairs(targets) do
+			t.enemy.slowUntil = os.clock() + ability.slowTime
+			t.enemy.slowMult = ability.slow
+			burst(t.enemy.root.Position, Color3.fromRGB(220, 245, 255), t.enemy.radius * 0.8)
+			damageEnemy(t.enemy, session, damage)
+		end
+	elseif mutationId == "Golden" then
+		local target = targets[1].enemy
+		bolt(origin, target.root.Position, mutation.color, 0.6, 0.4)
+		burst(target.root.Position, mutation.color, target.radius)
+		damageEnemy(target, session, damage)
+	elseif mutationId == "Rainbow" then
+		for i = 1, math.min(ability.targets, #targets) do
+			local target = targets[i].enemy
+			bolt(origin, target.root.Position, RAINBOW[(i * 2) % #RAINBOW + 1], 0.5, 0.3)
+			damageEnemy(target, session, damage)
+		end
+		local humanoid = info.humanoid
+		humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + humanoid.MaxHealth * ability.heal)
+		burst(info.hrp.Position, Color3.fromRGB(110, 255, 140), 3)
+	end
+	return true
+end
+
+task.spawn(function()
+	while true do
+		task.wait(0.25)
+		local clock = os.clock()
+		for _, arena in ipairs(Arenas) do
+			for _, info in ipairs(arena.players) do
+				local session = Sessions[info.player]
+				if session and session.loaded then
+					session.abilityReady = session.abilityReady or {}
+					for slot, pet in ipairs(equippedPets(session.data)) do
+						local mutation = pet.mutation and Config.Mutations[pet.mutation]
+						local key = slot .. ":" .. tostring(pet.mutation)
+						if mutation and clock >= (session.abilityReady[key] or 0) then
+							local origin = (info.hrp.CFrame * CFrame.new(PET_SLOTS[slot] or Vector3.new(0, 1, 4))).Position
+							if useAbility(session, info, pet.mutation, origin) then
+								session.abilityReady[key] = clock + mutation.ability.cooldown
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+end)
+
 ---------------------------------------------------------------------------
 -- ENEMY AI (only runs in arenas that have players in them)
 ---------------------------------------------------------------------------
@@ -3723,6 +3875,9 @@ RunService.Heartbeat:Connect(function(dt)
 			end
 			local goal
 			local speed = def.speed
+			if enemy.slowUntil and t < enemy.slowUntil then
+				speed *= enemy.slowMult or 1
+			end
 			if target then
 				goal = target.hrp.Position
 				if targetDistance <= def.reach and t - enemy.lastAttack >= (def.attackCooldown or Config.EnemyAttackCooldown) then
@@ -4603,19 +4758,16 @@ end)
 ---------------------------------------------------------------------------
 -- WEATHER: crates and pets can mutate while it lasts
 ---------------------------------------------------------------------------
+-- Each weather has its own chance; anything left over is clear skies (nil)
 local function pickWeather()
-	local total = 0
+	local roll = rng:NextNumber()
 	for _, w in ipairs(Config.Weather.types) do
-		total += w.weight
-	end
-	local roll = rng:NextNumber() * total
-	for _, w in ipairs(Config.Weather.types) do
-		roll -= w.weight
-		if roll <= 0 then
+		roll -= w.chance
+		if roll < 0 then
 			return w
 		end
 	end
-	return Config.Weather.types[1]
+	return nil
 end
 
 local function mutatePets(weather)
@@ -4630,7 +4782,7 @@ local function mutatePets(weather)
 					pet.mutation = weather.mutation
 					changed = true
 					local def = Config.GetPet(pet.id)
-					notify(session.player, { kind = "petMutated", pet = pet.id, mutation = weather.mutation })
+					notify(session.player, { kind = "petMutated", pet = pet.id, mutation = weather.mutation, ability = mutation.ability.name })
 					announce(session.player.DisplayName .. "'s " .. def.name .. " became " .. mutation.name:upper() .. "!", mutation.color)
 				end
 			end
@@ -4666,8 +4818,9 @@ remotes:SetAttribute("WeatherEnd", 0)
 task.spawn(function()
 	while true do
 		task.wait(Config.Weather.interval)
-		if #Players:GetPlayers() > 0 then
-			runWeather(pickWeather())
+		local weather = pickWeather()
+		if #Players:GetPlayers() > 0 and weather then
+			runWeather(weather)
 		end
 	end
 end)
