@@ -216,14 +216,21 @@ local function ctor()
 	return setmetatable({}, { __index = function() return function() return newMock("value") end end })
 end
 local Vector2, UDim2, UDim = ctor(), ctor(), ctor()
-local function color3()
+local function color3(r, g, b, scale)
 	local c = newMock("Color3")
+	scale = scale or 1
+	c.R, c.G, c.B = (tonumber(r) or 1) / scale, (tonumber(g) or 1) / scale, (tonumber(b) or 1) / scale
 	c.ToHex = function() return "a0b0c0" end
 	c.Lerp = function(self) return self end
 	return c
 end
-local Color3 = { new = color3, fromRGB = color3, fromHSV = color3 }
+local Color3 = {
+	new = function(r, g, b) return color3(r, g, b, 1) end,
+	fromRGB = function(r, g, b) return color3(r, g, b, 255) end,
+	fromHSV = function() return color3(1, 1, 1, 1) end,
+}
 local TweenInfo, NumberRange, NumberSequence, ColorSequence = ctor(), ctor(), ctor(), ctor()
+local NumberSequenceKeypoint = ctor()
 local Enum = newMock("Enum")
 
 local created = {}

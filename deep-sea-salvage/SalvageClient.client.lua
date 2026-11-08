@@ -108,6 +108,8 @@ local function outline(label, size)
 	})
 end
 
+local pendingShines -- shines made before the effects loop exists
+
 local function text(props)
 	local defaults = {
 		BackgroundTransparency = 1,
@@ -190,17 +192,46 @@ local function button(props)
 	btn:GetPropertyChangedSignal("RichText"):Connect(function()
 		label.RichText = btn.RichText
 	end)
-	-- little squish when pressed
+	-- grows a little under the mouse, squishes when pressed
 	local squish = new("UIScale", { Parent = btn })
+	btn.MouseEnter:Connect(function()
+		squish.Scale = 1.05
+	end)
 	btn.MouseButton1Down:Connect(function()
 		squish.Scale = 0.94
 	end)
 	btn.MouseButton1Up:Connect(function()
-		squish.Scale = 1
+		squish.Scale = 1.05
 	end)
 	btn.MouseLeave:Connect(function()
 		squish.Scale = 1
 	end)
+	-- green "buy / claim" buttons get a shine that sweeps across now and then
+	local c = btn.BackgroundColor3
+	if props.Shine or (c.G > 0.55 and c.G > c.R * 1.4 and c.G > c.B * 1.4) then
+		local shine = new("Frame", {
+			Position = UDim2.new(0, -8, 0, -4),
+			Size = UDim2.new(1, 16, 1, 9),
+			BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+			BorderSizePixel = 0,
+			ZIndex = 0,
+			Parent = btn,
+		})
+		corner(shine, 12)
+		local g = new("UIGradient", {
+			Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1),
+				NumberSequenceKeypoint.new(0.42, 1),
+				NumberSequenceKeypoint.new(0.5, 0.45),
+				NumberSequenceKeypoint.new(0.58, 1),
+				NumberSequenceKeypoint.new(1, 1),
+			}),
+			Rotation = 20,
+			Parent = shine,
+		})
+		pendingShines = pendingShines or {}
+		table.insert(pendingShines, { gradient = g, phase = math.random() * 2 })
+	end
 	return btn
 end
 
@@ -539,9 +570,20 @@ new("Frame", {
 	BorderSizePixel = 0,
 	Parent = header,
 })
+local headerFill = header:FindFirstChildOfClass("Frame")
+local headerIcon = text({
+	Position = UDim2.new(0, 12, 0, 6),
+	Size = UDim2.new(0, 42, 0, 42),
+	Text = "",
+	TextXAlignment = Enum.TextXAlignment.Center,
+	NoOutline = true,
+	MaxTextSize = 32,
+	ZIndex = 2,
+	Parent = header,
+})
 local panelTitle = text({
-	Size = UDim2.new(0.6, 0, 0, 36),
-	Position = UDim2.new(0, 18, 0, 8),
+	Size = UDim2.new(0.6, -50, 0, 36),
+	Position = UDim2.new(0, 60, 0, 8),
 	Font = Enum.Font.FredokaOne,
 	TextColor3 = THEME.text,
 	MaxTextSize = 30,
@@ -597,6 +639,28 @@ end
 local function listLayout()
 	new("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder, Parent = content })
 	new("UIPadding", { PaddingRight = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8), Parent = content })
+end
+
+-- each menu has its own ribbon color and icon
+local PANEL_STYLES = {
+	Fleet = { color = Color3.fromRGB(40, 150, 225), icon = "⚓" },
+	Shop = { color = Color3.fromRGB(60, 175, 80), icon = "🛒" },
+	Pets = { color = Color3.fromRGB(235, 95, 170), icon = "🐾" },
+	Logbook = { color = Color3.fromRGB(130, 90, 230), icon = "📖" },
+	Quests = { color = Color3.fromRGB(60, 150, 235), icon = "📜" },
+	Season = { color = Color3.fromRGB(215, 70, 200), icon = "🏆" },
+	Store = { color = Color3.fromRGB(230, 60, 75), icon = "💎" },
+	Rebirth = { color = Color3.fromRGB(240, 130, 40), icon = "🔄" },
+	Trade = { color = Color3.fromRGB(215, 125, 35), icon = "🤝" },
+}
+
+local function themePanel(name)
+	local style = PANEL_STYLES[name] or { color = THEME.ribbon, icon = "" }
+	header.BackgroundColor3 = style.color
+	if headerFill then
+		headerFill.BackgroundColor3 = style.color
+	end
+	headerIcon.Text = style.icon
 end
 
 local function card(height, order, accent)
@@ -1057,6 +1121,172 @@ local function petDisplayName(def, mutationId)
 end
 
 ---------------------------------------------------------------------------
+-- EYE CANDY: light bursts, stripes, shine, 3D icons
+---------------------------------------------------------------------------
+local burstRays = {}
+
+-- rotating rays of light behind something special
+local function sunburst(parent, color, size, position, zIndex)
+	local holder = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = position,
+		Size = UDim2.new(0, size, 0, size),
+		BackgroundTransparency = 1,
+		ZIndex = zIndex or 0,
+		Parent = parent,
+	})
+	for k = 0, 5 do
+		local ray = new("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.new(1, 0, 0, size * 0.16),
+			BackgroundColor3 = color,
+			BorderSizePixel = 0,
+			Rotation = k * 30,
+			ZIndex = zIndex or 0,
+			Parent = holder,
+		})
+		new("UIGradient", {
+			Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1),
+				NumberSequenceKeypoint.new(0.5, 0.35),
+				NumberSequenceKeypoint.new(1, 1),
+			}),
+			Parent = ray,
+		})
+		table.insert(burstRays, { ray = ray, base = k * 30 })
+	end
+	local glow = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.62, 0.62),
+		BackgroundColor3 = color,
+		BackgroundTransparency = 0.45,
+		ZIndex = zIndex or 0,
+		Parent = holder,
+	})
+	corner(glow, 999)
+	return holder
+end
+
+-- soft diagonal stripes over a tile (sits behind the tile's text and buttons)
+-- 5 soft stripes (Roblox allows 20 keypoints: 4 per stripe)
+local STRIPES = (function()
+	local keys = {}
+	local n = 5
+	for i = 0, n - 1 do
+		local a = i / n
+		local b = (i + 0.5) / n
+		table.insert(keys, NumberSequenceKeypoint.new(a, 0.86))
+		table.insert(keys, NumberSequenceKeypoint.new(b - 0.001, 0.86))
+		table.insert(keys, NumberSequenceKeypoint.new(b, 1))
+		table.insert(keys, NumberSequenceKeypoint.new(i == n - 1 and 1 or (i + 1) / n - 0.001, 1))
+	end
+	return NumberSequence.new(keys)
+end)()
+
+local function stripes(parent, radius)
+	local overlay = new("Frame", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		BorderSizePixel = 0,
+		ZIndex = 0,
+		Parent = parent,
+	})
+	corner(overlay, radius or 14)
+	new("UIGradient", { Transparency = STRIPES, Rotation = 35, Parent = overlay })
+	return overlay
+end
+
+-- a 3D model in a little window. motion: "spin", "sway" or nil
+local viewportMotion = {}
+local function modelViewport(parent, model, size, position, motion, zIndex)
+	local viewport = new("ViewportFrame", {
+		Size = size,
+		Position = position or UDim2.new(),
+		BackgroundTransparency = 1,
+		Ambient = Color3.fromRGB(175, 180, 195),
+		LightColor = Color3.fromRGB(255, 255, 255),
+		LightDirection = Vector3.new(-1, -1, 1),
+		ZIndex = zIndex or 1,
+		Parent = parent,
+	})
+	model.Parent = viewport
+	local camera = new("Camera", { FieldOfView = 38, Parent = viewport })
+	local extents = model:GetExtentsSize().Magnitude
+	-- close enough that the model fills its window
+	camera.CFrame = CFrame.lookAt(Vector3.new(extents * 0.42, extents * 0.3, -extents * 0.98), Vector3.new(0, 0, 0))
+	viewport.CurrentCamera = camera
+	model:PivotTo(CFrame.Angles(0, math.rad(-20), 0))
+	if motion then
+		table.insert(viewportMotion, { model = model, motion = motion, phase = math.random() * 6 })
+	end
+	return viewport
+end
+
+local function iconViewport(parent, key, size, position, zIndex)
+	local model = Models.BuildIcon(key)
+	if not model then
+		return nil
+	end
+	return modelViewport(parent, model, size, position, "sway", zIndex)
+end
+
+-- shine that sweeps across green buttons now and then
+local shines = {}
+
+-- everything that moves: rays turn, models spin/sway, shines sweep (~30 fps is plenty)
+local fxClock = 0
+RunService.RenderStepped:Connect(function(dt)
+	fxClock += dt
+	if fxClock < 1 / 30 then
+		return
+	end
+	fxClock = 0
+	local t = os.clock()
+	for i = #burstRays, 1, -1 do
+		local r = burstRays[i]
+		if r.ray.Parent then
+			r.ray.Rotation = r.base + t * 14
+		else
+			table.remove(burstRays, i)
+		end
+	end
+	for i = #viewportMotion, 1, -1 do
+		local m = viewportMotion[i]
+		if m.model.Parent then
+			local angle = m.motion == "spin" and t * 1.2 or math.rad(-20) + math.sin(t * 1.3 + m.phase) * 0.45
+			m.model:PivotTo(CFrame.Angles(0, angle, 0) * CFrame.new(0, math.sin(t * 2 + m.phase) * 0.08, 0))
+		else
+			table.remove(viewportMotion, i)
+		end
+	end
+	for i = #shines, 1, -1 do
+		local s = shines[i]
+		if s.gradient.Parent then
+			s.gradient.Offset = Vector2.new(((t * 0.55 + s.phase) % 2.2) - 1.1, 0)
+		else
+			table.remove(shines, i)
+		end
+	end
+end)
+
+stripes(header, 20) -- the panel title ribbon gets stripes too
+
+-- pick up shines from buttons made before this point (and any made later)
+task.spawn(function()
+	while true do
+		if pendingShines and #pendingShines > 0 then
+			for _, s in ipairs(pendingShines) do
+				table.insert(shines, s)
+			end
+			pendingShines = {}
+		end
+		task.wait(0.25)
+	end
+end)
+
+---------------------------------------------------------------------------
 -- PET FOLLOWERS (everyone's equipped pets swim behind them)
 ---------------------------------------------------------------------------
 local petFolder = new("Folder", { Name = "SalvagePets_" .. player.UserId, Parent = workspace })
@@ -1134,41 +1364,9 @@ end)
 ---------------------------------------------------------------------------
 -- VIEWPORT PREVIEW (a little 3D window showing a pet)
 ---------------------------------------------------------------------------
-local spinningViewports = {}
-
 local function petViewport(parent, def, size, position, spin)
-	local viewport = new("ViewportFrame", {
-		Size = size,
-		Position = position or UDim2.new(),
-		BackgroundTransparency = 1,
-		Ambient = Color3.fromRGB(170, 175, 190),
-		LightColor = Color3.fromRGB(255, 255, 255),
-		LightDirection = Vector3.new(-1, -1, 1),
-		Parent = parent,
-	})
-	local model = buildPet(def, 1)
-	model.Parent = viewport
-	local camera = new("Camera", { FieldOfView = 40, Parent = viewport })
-	local extents = model:GetExtentsSize().Magnitude
-	camera.CFrame = CFrame.lookAt(Vector3.new(extents * 0.8, extents * 0.45, -extents * 1.2), Vector3.new(0, 0, 0))
-	viewport.CurrentCamera = camera
-	model:PivotTo(CFrame.Angles(0, math.rad(-20), 0))
-	if spin then
-		table.insert(spinningViewports, model)
-	end
-	return viewport
+	return modelViewport(parent, buildPet(def, 1), size, position, spin and "spin" or "sway")
 end
-
-RunService.RenderStepped:Connect(function()
-	for i = #spinningViewports, 1, -1 do
-		local model = spinningViewports[i]
-		if model.Parent then
-			model:PivotTo(CFrame.Angles(0, os.clock() * 1.2, 0))
-		else
-			table.remove(spinningViewports, i)
-		end
-	end
-end)
 
 local function eggDrawing(parent, eggDef, size, position)
 	local egg = new("Frame", {
@@ -1308,14 +1506,32 @@ end
 local releaseArmed = {}
 
 local function sectionTitle(label, order)
+	local row = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 32),
+		BackgroundTransparency = 1,
+		LayoutOrder = order,
+		Parent = content,
+	})
+	local ribbon = new("Frame", {
+		Size = UDim2.new(0, 0, 1, -2),
+		AutomaticSize = Enum.AutomaticSize.X,
+		BackgroundColor3 = Color3.fromRGB(44, 98, 210),
+		Parent = row,
+	})
+	corner(ribbon, 12)
+	shade(ribbon)
+	stroke(ribbon, INK, 2.5, 0)
+	new("UIPadding", { PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 14), Parent = ribbon })
 	return text({
-		Size = UDim2.new(1, 0, 0, 24),
+		Size = UDim2.new(0, 0, 1, 0),
+		AutomaticSize = Enum.AutomaticSize.X,
+		TextScaled = false,
+		TextSize = 17,
 		Text = label,
 		Font = Enum.Font.FredokaOne,
-		TextColor3 = THEME.accent,
-		LayoutOrder = order,
-		MaxTextSize = 18,
-		Parent = content,
+		TextColor3 = THEME.text,
+		MaxTextSize = 17,
+		Parent = ribbon,
 	})
 end
 
@@ -1734,6 +1950,21 @@ local function renderPets()
 				text({ Size = UDim2.fromScale(1, 1), Text = mutation.name:upper(), Font = Enum.Font.FredokaOne, TextColor3 = THEME.bg,
 					TextXAlignment = Enum.TextXAlignment.Center, MaxTextSize = 10, ZIndex = 2, Parent = tag })
 			end
+			local glowColor = mutation and mutation.color or rarity.color
+			if def.rarity >= 4 or mutation then
+				sunburst(box, glowColor, 120, UDim2.new(0.5, 0, 0, 50), 0)
+			end
+			local pedestal = new("Frame", {
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.new(0.5, 0, 0, 82),
+				Size = UDim2.new(0, 84, 0, 18),
+				BackgroundColor3 = glowColor,
+				BackgroundTransparency = 0.35,
+				ZIndex = 0,
+				Parent = box,
+			})
+			corner(pedestal, 999)
+			stroke(pedestal, INK, 2, 0.3)
 			petViewport(box, mutatedDef(def, pet.mutation), UDim2.new(1, 0, 0, 96), UDim2.new(0, 0, 0, 0), false)
 			text({
 				Position = UDim2.new(0, 6, 0, 96),
@@ -2986,83 +3217,57 @@ end
 
 local function storeCard(parent, order, item, owned, accent, extra, badge)
 	local color = STORE_COLORS[item.key] or accent
-	local box = new("Frame", { BackgroundColor3 = color, LayoutOrder = order, Parent = parent })
-	corner(box, 16)
+	local box = new("Frame", { BackgroundColor3 = color, LayoutOrder = order, ClipsDescendants = false, Parent = parent })
+	corner(box, 18)
 	shade(box)
 	stroke(box, INK, 3, 0)
-	-- icon bubble
-	local bubble = new("Frame", {
-		Position = UDim2.new(0, 10, 0, 10),
-		Size = UDim2.new(0, 48, 0, 48),
-		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-		BackgroundTransparency = 0.25,
-		Parent = box,
-	})
-	corner(bubble, 24)
-	stroke(bubble, INK, 2.5, 0)
-	text({
-		Size = UDim2.fromScale(1, 1),
-		Text = ICONS[item.key] or "*",
-		TextXAlignment = Enum.TextXAlignment.Center,
-		NoOutline = true,
-		MaxTextSize = 30,
-		Parent = bubble,
-	})
+	stripes(box, 18)
+	-- big 3D icon with rays of light behind it
+	sunburst(box, Color3.fromRGB(255, 255, 255), 150, UDim2.new(0, 70, 0, 74), 0)
+	iconViewport(box, item.key, UDim2.new(0, 130, 0, 130), UDim2.new(0, 5, 0, 9), 1)
 	if badge then
 		local tag = new("Frame", {
 			AnchorPoint = Vector2.new(1, 0),
-			Position = UDim2.new(1, -8, 0, -10),
-			Size = UDim2.new(0, 96, 0, 24),
+			Position = UDim2.new(1, -8, 0, -12),
+			Size = UDim2.new(0, 100, 0, 26),
 			BackgroundColor3 = THEME.danger,
-			Rotation = 4,
+			Rotation = 5,
 			ZIndex = 3,
 			Parent = box,
 		})
-		corner(tag, 12)
+		corner(tag, 13)
 		shade(tag)
 		stroke(tag, INK, 2.5, 0)
-		text({
-			Size = UDim2.fromScale(1, 1),
-			Text = badge,
-			TextXAlignment = Enum.TextXAlignment.Center,
-			MaxTextSize = 13,
-			ZIndex = 4,
-			Parent = tag,
-		})
+		text({ Size = UDim2.fromScale(1, 1), Text = badge, TextXAlignment = Enum.TextXAlignment.Center, MaxTextSize = 14, ZIndex = 4, Parent = tag })
 	end
 	text({
-		Position = UDim2.new(0, 64, 0, 12),
-		Size = UDim2.new(1, -72, 0, 24),
+		Position = UDim2.new(0, 140, 0, 14),
+		Size = UDim2.new(1, -150, 0, 30),
 		Text = item.name,
-		MaxTextSize = 18,
+		MaxTextSize = 24,
+		ZIndex = 2,
 		Parent = box,
 	})
 	text({
-		Position = UDim2.new(0, 64, 0, 38),
-		Size = UDim2.new(1, -72, 0, 18),
-		Text = owned and "OWNED" or "",
-		TextColor3 = THEME.gold,
-		MaxTextSize = 13,
-		Parent = box,
-	})
-	text({
-		Position = UDim2.new(0, 10, 0, 64),
-		Size = UDim2.new(1, -20, 0, 52),
+		Position = UDim2.new(0, 140, 0, 48),
+		Size = UDim2.new(1, -150, 0, 64),
 		Text = item.desc .. (extra or ""),
 		Font = Enum.Font.GothamBold,
 		TextWrapped = true,
 		TextYAlignment = Enum.TextYAlignment.Top,
-		MaxTextSize = 13,
+		MaxTextSize = 14,
+		ZIndex = 2,
 		Parent = box,
 	})
 	local b = button({
-		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -10),
-		Size = UDim2.new(1, -24, 0, 38),
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, -12, 1, -12),
+		Size = UDim2.new(1, -152, 0, 42),
 		Text = owned and "OWNED" or priceText(item),
 		RichText = true,
 		BackgroundColor3 = owned and Color3.fromRGB(150, 160, 180) or THEME.buy,
-		MaxTextSize = 20,
+		MaxTextSize = 22,
+		ZIndex = 2,
 		Parent = box,
 	})
 	b.MouseButton1Click:Connect(function()
@@ -3130,7 +3335,7 @@ local function renderStore()
 	end)
 
 	sectionTitle("BOOSTS  (buy again to add more time)", 1)
-	local boosts = gridSection(2, UDim2.new(0.5, -6, 0, 150))
+	local boosts = gridSection(2, UDim2.new(0.5, -6, 0, 172))
 	for i, product in ipairs(Config.Products) do
 		if product.boost then
 			local left = boostTimeLeft(product.boost)
@@ -3140,7 +3345,7 @@ local function renderStore()
 	end
 
 	sectionTitle("REBIRTH FASTER", 3)
-	local rebirthGrid = gridSection(4, UDim2.new(0.5, -6, 0, 176))
+	local rebirthGrid = gridSection(4, UDim2.new(0.5, -6, 0, 172))
 	for i, product in ipairs(Config.Products) do
 		if product.levels or product.rebirth then
 			storeCard(rebirthGrid, i, product, false, STORE_ACCENTS.rebirth)
@@ -3148,7 +3353,7 @@ local function renderStore()
 	end
 
 	sectionTitle("SEASON PASSES  -  " .. Config.Season.name, 5)
-	local seasonGrid = gridSection(6, UDim2.new(0.5, -6, 0, 176))
+	local seasonGrid = gridSection(6, UDim2.new(0.5, -6, 0, 172))
 	for i, product in ipairs(Config.Products) do
 		if product.seasonPass then
 			local owned = (product.seasonPass == "premium" and (state.season.premium or state.season.mystic))
@@ -3165,7 +3370,7 @@ local function renderStore()
 	end
 
 	sectionTitle("GAME PASSES  (yours forever)", 7)
-	local passes = gridSection(8, UDim2.new(0.333, -6, 0, 176))
+	local passes = gridSection(8, UDim2.new(0.5, -6, 0, 172))
 	for i, pass in ipairs(Config.GamePasses) do
 		storeCard(passes, i, pass, state.passes[pass.key] == true, STORE_ACCENTS.pass)
 	end
@@ -3551,6 +3756,7 @@ local function renderPanel(force)
 	end
 	local scroll = content.CanvasPosition
 	clearContent()
+	themePanel(currentPanel)
 	renderers[currentPanel]()
 	polish(content)
 	task.defer(function()
@@ -3778,6 +3984,11 @@ StateUpdate.OnClientEvent:Connect(function(newState)
 	local target = state.coins
 	local from = displayedCoins
 	displayedCoins = target
+	if target > from and from > 0 then
+		local pop = coinsLabel:FindFirstChildOfClass("UIScale") or new("UIScale", { Parent = coinsLabel })
+		pop.Scale = 1.25
+		TweenService:Create(pop, TweenInfo.new(0.3, Enum.EasingStyle.Back), { Scale = 1 }):Play()
+	end
 	-- count-up animation for coins
 	task.spawn(function()
 		local steps = 12

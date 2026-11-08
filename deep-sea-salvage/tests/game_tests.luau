@@ -1291,6 +1291,17 @@ for g, list in ipairs(groups) do
 end
 check(true, "every ability ran without errors")
 
+-- every pass and product has a 3D icon
+local missingIcons = {}
+for _, list in ipairs({ Config.GamePasses, Config.Products }) do
+	for _, item in ipairs(list) do
+		if not Models.Icons[item.key] or not Models.BuildIcon(item.key) then
+			table.insert(missingIcons, item.key)
+		end
+	end
+end
+check(#missingIcons == 0, "every store item has a 3D icon (missing: " .. table.concat(missingIcons, ", ") .. ")")
+
 -- ======================= CLIENT: run the real UI against the real server =======================
 clientPlayer = A
 PlayersService.LocalPlayer = A
