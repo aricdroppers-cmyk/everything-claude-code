@@ -165,6 +165,7 @@ Config.PetRarities = {
 	{ name = "Rare", color = Color3.fromRGB(80, 165, 255), releaseValue = 600 },
 	{ name = "Epic", color = Color3.fromRGB(185, 105, 255), releaseValue = 3000 },
 	{ name = "Legendary", color = Color3.fromRGB(255, 195, 50), releaseValue = 12000 },
+	{ name = "Mythic", color = Color3.fromRGB(255, 90, 220), releaseValue = 50000 }, -- Mystic season pass only
 }
 
 local function rgb(r, g, b)
@@ -225,6 +226,383 @@ Config.Pets = {
 	{ id = "PearlDragon", name = "Pearl Dragon", egg = "Kraken", rarity = 5, weight = 3, shape = "eel",
 		color = rgb(245, 240, 255), accent = rgb(255, 180, 230), glow = true, bonus = { coins = 0.5, luck = 0.3, xp = 0.3 } },
 }
+
+---------------------------------------------------------------------------
+-- SEASON PETS (only from the season pass). Each one has 3 versions: the
+-- normal one, a "Radiant" one after your 1st season prestige and a
+-- "Celestial" one after your 2nd. Mythic (rarity 6) pets are Mystic-pass only.
+---------------------------------------------------------------------------
+Config.SeasonPetBases = {
+	{ id = "CoralSprite", name = "Coral Sprite", rarity = 3, shape = "star",
+		color = rgb(255, 120, 150), accent = rgb(255, 230, 240), bonus = { coins = 0.15, xp = 0.1 } },
+	{ id = "CrownedTurtle", name = "Crowned Turtle", rarity = 4, shape = "turtle",
+		color = rgb(60, 130, 140), accent = rgb(255, 205, 70), bonus = { coins = 0.3, hull = 0.02 } },
+	{ id = "TideWyrm", name = "Tide Wyrm", rarity = 4, shape = "eel",
+		color = rgb(40, 110, 200), accent = rgb(160, 240, 255), glow = true, bonus = { luck = 0.25, xp = 0.1 } },
+	{ id = "SovereignRay", name = "Sovereign Ray", rarity = 5, shape = "ray",
+		color = rgb(30, 30, 60), accent = rgb(255, 205, 70), glow = true, bonus = { coins = 0.6, luck = 0.3 } },
+	{ id = "MysticMinnow", name = "Mystic Minnow", rarity = 5, shape = "fish",
+		color = rgb(150, 80, 230), accent = rgb(255, 140, 255), glow = true, bonus = { coins = 0.5, luck = 0.2 } },
+	{ id = "MysticJelly", name = "Mystic Jelly", rarity = 6, shape = "jelly",
+		color = rgb(200, 120, 255), accent = rgb(120, 255, 240), glow = true, bonus = { luck = 0.6, xp = 0.4 } },
+	{ id = "AstralOctopus", name = "Astral Octopus", rarity = 6, shape = "octopus",
+		color = rgb(40, 20, 90), accent = rgb(255, 120, 230), glow = true, bonus = { coins = 1.2, luck = 0.4 } },
+	{ id = "MysticLeviathan", name = "Mystic Leviathan", rarity = 6, shape = "eel",
+		color = rgb(90, 30, 160), accent = rgb(90, 255, 230), glow = true, bonus = { coins = 2.0, luck = 0.8, xp = 0.5 } },
+}
+Config.SeasonPetVariants = {
+	{ prefix = "", idPrefix = "", bonusMult = 1 },
+	{ prefix = "Radiant ", idPrefix = "Radiant", bonusMult = 1.5, accent = rgb(255, 215, 90) },
+	{ prefix = "Celestial ", idPrefix = "Celestial", bonusMult = 2.25, accent = rgb(150, 240, 255), lighten = 0.35 },
+}
+for _, base in ipairs(Config.SeasonPetBases) do
+	for _, variant in ipairs(Config.SeasonPetVariants) do
+		local bonus = {}
+		for stat, value in pairs(base.bonus) do
+			bonus[stat] = value * variant.bonusMult
+		end
+		table.insert(Config.Pets, {
+			id = variant.idPrefix .. base.id,
+			name = variant.prefix .. base.name,
+			egg = nil, -- season only
+			season = true,
+			rarity = base.rarity,
+			weight = 0,
+			shape = base.shape,
+			color = variant.lighten and base.color:Lerp(Color3.new(1, 1, 1), variant.lighten) or base.color,
+			accent = variant.accent or base.accent,
+			glow = base.glow or variant.prefix ~= "",
+			bonus = bonus,
+		})
+	end
+end
+
+-- ids of one season pet in all 3 versions, e.g. SeasonPet("CoralSprite")
+function Config.SeasonPet(baseId)
+	local ids = {}
+	for _, variant in ipairs(Config.SeasonPetVariants) do
+		table.insert(ids, variant.idPrefix .. baseId)
+	end
+	return ids
+end
+
+---------------------------------------------------------------------------
+-- WEAPONS. Bought in the Shop (WEAPONS tab). The equipped one is your tool.
+---------------------------------------------------------------------------
+Config.Weapons = {
+	{ id = "DriftwoodSpear", name = "Driftwood Spear", style = "spear", damage = 6, range = 11, cooldown = 0.45,
+		price = 0, currency = "Coins", color = rgb(150, 110, 70), tip = rgb(210, 210, 215) },
+	{ id = "BrassHarpoon", name = "Brass Harpoon", style = "harpoon", damage = 15, range = 12, cooldown = 0.45,
+		price = 1500, currency = "Coins", color = rgb(205, 160, 60), tip = rgb(240, 240, 245) },
+	{ id = "CoralTrident", name = "Coral Trident", style = "trident", damage = 40, range = 12, cooldown = 0.45,
+		price = 15000, currency = "Coins", color = rgb(255, 120, 140), tip = rgb(255, 210, 220) },
+	{ id = "AbyssalCutlass", name = "Abyssal Cutlass", style = "blade", damage = 110, range = 10, cooldown = 0.35,
+		price = 120000, currency = "Coins", color = rgb(40, 40, 50), tip = rgb(255, 60, 80) },
+	{ id = "StormLance", name = "Storm Lance", style = "spear", damage = 280, range = 15, cooldown = 0.45,
+		price = 600000, currency = "Coins", color = rgb(70, 80, 120), tip = rgb(255, 240, 90), glow = true },
+	{ id = "LeviathanFang", name = "Leviathan Fang", style = "blade", damage = 600, range = 13, cooldown = 0.4,
+		price = 120, currency = "Pearls", color = rgb(10, 80, 90), tip = rgb(60, 255, 230), glow = true },
+	-- season pass only
+	{ id = "TidebreakerTrident", name = "Tidebreaker Trident", style = "trident", damage = 900, range = 14, cooldown = 0.4,
+		seasonOnly = true, color = rgb(30, 90, 170), tip = rgb(160, 240, 255), glow = true },
+	{ id = "MysticTrident", name = "Mystic Trident", style = "trident", damage = 1800, range = 16, cooldown = 0.35,
+		seasonOnly = true, color = rgb(120, 60, 200), tip = rgb(255, 120, 255), glow = true },
+}
+Config.StartingWeapon = "DriftwoodSpear"
+
+function Config.GetWeapon(id)
+	for index, weapon in ipairs(Config.Weapons) do
+		if weapon.id == id then
+			return weapon, index
+		end
+	end
+	return nil
+end
+
+---------------------------------------------------------------------------
+-- ENEMIES. Built from the same shapes as pets, just bigger and angrier.
+-- height = how high above the floor they swim (0 = walks on the floor)
+---------------------------------------------------------------------------
+Config.Enemies = {
+	{ id = "SnappyCrab", name = "Snappy Crab", shape = "crab", scale = 2.2, height = 0,
+		color = rgb(230, 80, 55), accent = rgb(255, 210, 170),
+		hp = 40, damage = 5, reach = 5, speed = 9, coins = 8, xp = 6, seasonXp = 2 },
+	{ id = "StingJelly", name = "Sting Jelly", shape = "jelly", scale = 2.2, height = 4,
+		color = rgb(255, 140, 200), accent = rgb(255, 220, 240),
+		hp = 30, damage = 6, reach = 5, speed = 6, coins = 10, xp = 8, seasonXp = 2 },
+	{ id = "MorayEel", name = "Moray Eel", shape = "eel", scale = 2.8, height = 3,
+		color = rgb(90, 130, 50), accent = rgb(220, 230, 90),
+		hp = 180, damage = 12, reach = 6, speed = 15, coins = 45, xp = 20, seasonXp = 4 },
+	{ id = "PufferBrute", name = "Puffer Brute", shape = "fish", round = true, scale = 3.2, height = 3,
+		color = rgb(235, 210, 110), accent = rgb(130, 90, 40),
+		hp = 300, damage = 16, reach = 7, speed = 7, coins = 70, xp = 30, seasonXp = 5 },
+	{ id = "Barracuda", name = "Barracuda", shape = "fish", fin = true, scale = 3.2, height = 4,
+		color = rgb(150, 170, 190), accent = rgb(60, 70, 90),
+		hp = 700, damage = 22, reach = 7, speed = 19, coins = 160, xp = 60, seasonXp = 8 },
+	{ id = "GiantSquid", name = "Giant Squid", shape = "octopus", scale = 4, height = 4,
+		color = rgb(200, 60, 70), accent = rgb(255, 170, 160),
+		hp = 1100, damage = 28, reach = 9, speed = 9, coins = 250, xp = 90, seasonXp = 10 },
+	{ id = "GreatShark", name = "Great Shark", shape = "fish", fin = true, scale = 6, height = 5,
+		color = rgb(110, 125, 140), accent = rgb(230, 235, 240),
+		hp = 3000, damage = 40, reach = 11, speed = 21, coins = 600, xp = 180, seasonXp = 15 },
+	{ id = "AnglerHorror", name = "Angler Horror", shape = "fish", lure = true, round = true, scale = 5, height = 5,
+		color = rgb(45, 40, 55), accent = rgb(255, 240, 140), glow = true,
+		hp = 3800, damage = 46, reach = 10, speed = 11, coins = 800, xp = 240, seasonXp = 18 },
+	{ id = "AbyssalHorror", name = "Abyssal Horror", shape = "octopus", scale = 6, height = 5,
+		color = rgb(20, 18, 28), accent = rgb(255, 40, 70), glow = true,
+		hp = 9000, damage = 70, reach = 12, speed = 12, coins = 2000, xp = 600, seasonXp = 30 },
+	{ id = "Leviathan", name = "THE LEVIATHAN", shape = "eel", scale = 14, height = 12, boss = true,
+		color = rgb(15, 60, 70), accent = rgb(60, 255, 230), glow = true,
+		hp = 150000, hpPerPlayer = 60000, damage = 120, reach = 26, speed = 14, attackCooldown = 2.5,
+		coins = 50000, xp = 5000, seasonXp = 300, pearls = 20, eggChance = 0.5 },
+}
+Config.EnemyAttackCooldown = 1.8
+Config.EnemyAggroRange = 40
+Config.EnemyFragmentChance = 0.08 -- chance a kill drops a fragment (zone drop rates)
+Config.EnemyEggChance = 0.015 -- chance a kill drops the zone's egg
+Config.BossInterval = 300 -- seconds between Leviathan spawns
+Config.PlayerBaseHealth = 100
+Config.HealthPerLevel = 20
+
+function Config.GetEnemy(id)
+	for _, enemy in ipairs(Config.Enemies) do
+		if enemy.id == id then
+			return enemy
+		end
+	end
+	return nil
+end
+
+---------------------------------------------------------------------------
+-- HUNTING GROUNDS (one per zone, reached through portals on the island)
+---------------------------------------------------------------------------
+Config.Arenas = {
+	{ id = "Shallows", zone = 1, level = 1, maxEnemies = 7, enemies = { "SnappyCrab", "StingJelly" },
+		floor = rgb(225, 205, 150), floorMaterial = Enum.Material.Sand, rock = rgb(170, 150, 120),
+		water = rgb(90, 190, 210), fog = 0.35 },
+	{ id = "Kelp", zone = 2, level = 5, maxEnemies = 6, enemies = { "MorayEel", "PufferBrute" },
+		floor = rgb(90, 120, 70), floorMaterial = Enum.Material.Grass, rock = rgb(80, 95, 70),
+		water = rgb(50, 140, 110), fog = 0.45 },
+	{ id = "Twilight", zone = 3, level = 12, maxEnemies = 6, enemies = { "Barracuda", "GiantSquid" },
+		floor = rgb(60, 70, 110), floorMaterial = Enum.Material.Slate, rock = rgb(50, 55, 85),
+		water = rgb(40, 70, 150), fog = 0.55 },
+	{ id = "Midnight", zone = 4, level = 20, maxEnemies = 5, enemies = { "GreatShark", "AnglerHorror" },
+		floor = rgb(30, 30, 50), floorMaterial = Enum.Material.Basalt, rock = rgb(25, 25, 40),
+		water = rgb(20, 25, 70), fog = 0.65 },
+	{ id = "Abyss", zone = 5, level = 30, maxEnemies = 5, enemies = { "AbyssalHorror" }, boss = "Leviathan",
+		floor = rgb(15, 12, 20), floorMaterial = Enum.Material.Basalt, rock = rgb(20, 15, 25),
+		water = rgb(10, 10, 30), fog = 0.75 },
+}
+
+Config.ArenaSize = 180
+
+-- Where hunting ground number i is (far away from the island, out of the water)
+function Config.ArenaCenter(index)
+	return Vector3.new(1100, 0, (index - 3) * 260)
+end
+
+---------------------------------------------------------------------------
+-- REBIRTH. Resets level, coins, subs and weapons for permanent bonuses.
+-- You KEEP: restored ships, fragments, pets, eggs, pearls, season progress,
+-- game passes and boosts.
+---------------------------------------------------------------------------
+Config.Rebirth = {
+	max = 10,
+	levelBase = 25, -- level needed for the 1st rebirth
+	levelPer = 10, -- +10 levels needed for each rebirth after that
+	coinsBase = 250000, -- coins needed for the 1st rebirth
+	coinsGrowth = 3, -- each rebirth costs 3x the coins of the last
+	-- bonuses PER rebirth
+	coinsBonus = 0.5,
+	xpBonus = 0.25,
+	luckBonus = 0.05,
+	damageBonus = 0.15,
+	healthBonus = 100,
+}
+
+function Config.RebirthRequirement(rebirths)
+	local r = Config.Rebirth
+	return r.levelBase + r.levelPer * rebirths, math.floor(r.coinsBase * r.coinsGrowth ^ rebirths)
+end
+
+---------------------------------------------------------------------------
+-- QUESTS. Daily quests reset at midnight UTC, weekly ones every Monday.
+-- Reward coins are multiplied by your level.
+---------------------------------------------------------------------------
+Config.DailyQuestCount = 3
+Config.DailyQuests = {
+	{ id = "Haul", text = "Haul up %d crates", stat = "hauls", target = 40, reward = { coins = 150, pearls = 2, seasonXp = 400 } },
+	{ id = "Defeat", text = "Defeat %d sea creatures", stat = "kills", target = 25, reward = { coins = 200, pearls = 2, seasonXp = 400 } },
+	{ id = "NewFrag", text = "Find %d fragments you didn't have", stat = "newFragments", target = 3, reward = { coins = 200, pearls = 3, seasonXp = 450 } },
+	{ id = "Hatch", text = "Hatch %d eggs", stat = "hatches", target = 2, reward = { coins = 150, pearls = 2, seasonXp = 350 } },
+	{ id = "DeepDive", text = "Finish %d dives in Twilight Drop or deeper", stat = "deepDives", target = 15, reward = { coins = 250, pearls = 3, seasonXp = 450 } },
+	{ id = "Chests", text = "Open %d treasure chests", stat = "chests", target = 2, reward = { coins = 150, pearls = 3, seasonXp = 350 } },
+	{ id = "Kraken", text = "Hit the Kraken %d times", stat = "krakenHits", target = 30, reward = { coins = 200, pearls = 3, seasonXp = 400 } },
+	{ id = "Fragments", text = "Collect %d fragments", stat = "fragments", target = 50, reward = { coins = 150, pearls = 2, seasonXp = 350 } },
+}
+Config.WeeklyQuestCount = 2
+Config.WeeklyQuests = {
+	{ id = "WeeklyHaul", text = "Haul up %d crates", stat = "hauls", target = 500, reward = { coins = 2000, pearls = 15, seasonXp = 2500 } },
+	{ id = "WeeklyDefeat", text = "Defeat %d sea creatures", stat = "kills", target = 300, reward = { coins = 2500, pearls = 15, seasonXp = 2500 } },
+	{ id = "WeeklyHatch", text = "Hatch %d eggs", stat = "hatches", target = 15, reward = { coins = 2000, pearls = 12, seasonXp = 2000 } },
+	{ id = "WeeklyDeep", text = "Finish %d dives in Twilight Drop or deeper", stat = "deepDives", target = 150, reward = { coins = 2500, pearls = 15, seasonXp = 2500 } },
+}
+
+---------------------------------------------------------------------------
+-- ROBUX: GAME PASSES (permanent) and DEVELOPER PRODUCTS (boosts, season passes)
+-- Create these in the Creator Dashboard and paste their ids here.
+-- While an id is 0, buying it in Studio just gives it to you for free so you
+-- can test (it never works like that in a live game).
+---------------------------------------------------------------------------
+Config.GamePasses = {
+	{ key = "DoubleCoins", name = "2x Coins", desc = "Double coins from everything, forever.", price = 149, id = 0 },
+	{ key = "LuckyDiver", name = "Lucky Diver", desc = "+50% luck on every dive and every kill.", price = 199, id = 0 },
+	{ key = "AutoHaul", name = "Auto Haul", desc = "Crates haul themselves up. No walking back to your bay!", price = 199, id = 0 },
+	{ key = "PetSlots", name = "+2 Pet Slots", desc = "Equip 5 pets instead of 3.", price = 149, id = 0 },
+	{ key = "VIP", name = "VIP Diver", desc = "+20% XP, +10% coins and a gold VIP tag.", price = 249, id = 0 },
+}
+Config.Products = {
+	{ key = "BoostCoins", name = "2x Coins (30 min)", desc = "Double coins for 30 minutes.", price = 29, id = 0, boost = "coins", minutes = 30 },
+	{ key = "BoostLuck", name = "2x Luck (30 min)", desc = "Double luck for 30 minutes.", price = 39, id = 0, boost = "luck", minutes = 30 },
+	{ key = "BoostXP", name = "2x XP (30 min)", desc = "Double XP for 30 minutes.", price = 25, id = 0, boost = "xp", minutes = 30 },
+	{ key = "SeasonPremium", name = "Premium Season Pass", desc = "Unlocks the Premium reward track this season. +10% season XP.", price = 400, id = 0, seasonPass = "premium" },
+	{ key = "SeasonMystic", name = "Mystic Season Pass", desc = "Unlocks the Premium AND Mystic tracks: the best rewards, Mythic pets and the Mystic Trident. +25% season XP.", price = 1000, id = 0, seasonPass = "mystic" },
+}
+Config.BoostMultiplier = 2
+
+function Config.GetPassByKey(key)
+	for _, pass in ipairs(Config.GamePasses) do
+		if pass.key == key then
+			return pass
+		end
+	end
+	return nil
+end
+
+function Config.GetProductByKey(key)
+	for _, product in ipairs(Config.Products) do
+		if product.key == key then
+			return product
+		end
+	end
+	return nil
+end
+
+---------------------------------------------------------------------------
+-- SEASON PASS
+-- Earn season XP from hauls, kills, quests and events. Every tier gives the
+-- rewards of the tracks you own (Free always, Premium with either pass,
+-- Mystic with the Mystic pass). Reach the last tier, then earn
+-- prestigeExtraTiers more tiers of XP to PRESTIGE: the pass resets and every
+-- reward gets bigger. Season pets upgrade to Radiant, then Celestial.
+-- When you make Season 2, change id + name + rewards. Progress and the
+-- season passes reset automatically for the new season id.
+---------------------------------------------------------------------------
+Config.Season = {
+	id = "S1",
+	name = "Season 1: Tides of the Deep",
+	tiers = 20,
+	xpPerTier = 1000,
+	prestigeExtraTiers = 5,
+	maxPrestige = 2,
+	prestigeMultiplier = { 1, 1.75, 2.5 }, -- reward amounts on prestige 0, 1, 2
+	premiumXpBonus = 0.1,
+	mysticXpBonus = 0.25,
+	overflowPearls = 5, -- pearls per extra tier once you can't prestige any more
+	xpPerHaul = 1,
+	xpPerEvent = 150,
+}
+
+local function coins(amount)
+	return { kind = "coins", amount = amount }
+end
+local function pearls(amount)
+	return { kind = "pearls", amount = amount }
+end
+local function xp(amount)
+	return { kind = "xp", amount = amount }
+end
+local function egg(id, amount)
+	return { kind = "egg", id = id, amount = amount }
+end
+local function boost(which, minutes)
+	return { kind = "boost", boost = which, minutes = minutes }
+end
+local function seasonPet(baseId)
+	return { kind = "pet", ids = Config.SeasonPet(baseId) }
+end
+local function weapon(id)
+	return { kind = "weapon", id = id }
+end
+
+-- rewards[tier] = { free = ..., premium = ..., mystic = ... } (any can be nil)
+Config.Season.rewards = {
+	[1] = { premium = pearls(10), mystic = seasonPet("MysticMinnow") },
+	[2] = { free = coins(2000), premium = boost("coins", 15), mystic = pearls(30) },
+	[3] = { premium = egg("Kelp", 2), mystic = boost("luck", 60) },
+	[4] = { free = egg("TidePool", 2), premium = coins(10000), mystic = egg("Midnight", 2) },
+	[5] = { premium = seasonPet("TideWyrm"), mystic = seasonPet("MysticJelly") },
+	[6] = { free = pearls(5), premium = boost("luck", 30), mystic = coins(100000) },
+	[7] = { premium = xp(2000), mystic = boost("coins", 120) },
+	[8] = { free = boost("xp", 15), premium = egg("Twilight", 2), mystic = egg("Abyss", 2) },
+	[9] = { premium = pearls(25), mystic = pearls(80) },
+	[10] = { free = seasonPet("CoralSprite"), premium = weapon("TidebreakerTrident"), mystic = weapon("MysticTrident") },
+	[11] = { premium = coins(40000), mystic = xp(10000) },
+	[12] = { free = coins(15000), premium = boost("xp", 30), mystic = egg("Abyss", 3) },
+	[13] = { premium = egg("Midnight", 2), mystic = boost("luck", 120) },
+	[14] = { free = egg("Kelp", 2), premium = pearls(40), mystic = pearls(120) },
+	[15] = { premium = seasonPet("CrownedTurtle"), mystic = seasonPet("AstralOctopus") },
+	[16] = { free = pearls(15), premium = boost("coins", 60), mystic = coins(500000) },
+	[17] = { premium = coins(150000), mystic = boost("all", 60) },
+	[18] = { free = boost("coins", 30), premium = egg("Abyss", 1), mystic = egg("Abyss", 5) },
+	[19] = { premium = pearls(60), mystic = pearls(200) },
+	[20] = { free = egg("Midnight", 1), premium = seasonPet("SovereignRay"), mystic = seasonPet("MysticLeviathan") },
+}
+
+-- What a reward actually gives at a prestige level (0, 1 or 2)
+function Config.ScaleReward(reward, prestige)
+	local mult = Config.Season.prestigeMultiplier[prestige + 1] or 1
+	local scaled = table.clone(reward)
+	if reward.amount then
+		scaled.amount = math.max(1, math.floor(reward.amount * mult + 0.5))
+	end
+	if reward.minutes then
+		scaled.minutes = math.floor(reward.minutes * mult + 0.5)
+	end
+	if reward.ids then
+		scaled.id = reward.ids[math.min(prestige + 1, #reward.ids)]
+	end
+	return scaled
+end
+
+function Config.DescribeReward(reward, prestige)
+	local r = Config.ScaleReward(reward, prestige or 0)
+	if r.kind == "coins" then
+		return Config.FormatNumber(r.amount) .. " Coins", Color3.fromRGB(255, 205, 80)
+	elseif r.kind == "pearls" then
+		return r.amount .. " Pearls", Color3.fromRGB(235, 230, 255)
+	elseif r.kind == "xp" then
+		return Config.FormatNumber(r.amount) .. " XP", Color3.fromRGB(60, 225, 210)
+	elseif r.kind == "egg" then
+		local eggDef = Config.GetEgg(r.id)
+		return r.amount .. "x " .. (eggDef and eggDef.name or r.id), eggDef and eggDef.spots or Color3.new(1, 1, 1)
+	elseif r.kind == "boost" then
+		local label = r.boost == "all" and "2x Everything" or ("2x " .. r.boost:sub(1, 1):upper() .. r.boost:sub(2))
+		return label .. " (" .. r.minutes .. "m)", Color3.fromRGB(110, 235, 140)
+	elseif r.kind == "pet" then
+		local pet = Config.GetPet(r.id)
+		return pet and pet.name or r.id, pet and Config.PetRarities[pet.rarity].color or Color3.new(1, 1, 1)
+	elseif r.kind == "weapon" then
+		local w = Config.GetWeapon(r.id)
+		return w and w.name or r.id, Color3.fromRGB(255, 150, 80)
+	end
+	return "?", Color3.new(1, 1, 1)
+end
+
+-- Season tier (0..) reached for an amount of season XP
+function Config.SeasonTier(seasonXp)
+	return math.floor(seasonXp / Config.Season.xpPerTier)
+end
 
 ---------------------------------------------------------------------------
 -- HELPERS (used by both server and client)

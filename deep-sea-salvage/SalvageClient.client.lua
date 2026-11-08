@@ -403,8 +403,8 @@ end
 ---------------------------------------------------------------------------
 local panel = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0.5),
-	Position = UDim2.fromScale(0.53, 0.53),
-	Size = UDim2.fromScale(0.62, 0.66),
+	Position = UDim2.fromScale(0.5, 0.53),
+	Size = UDim2.fromScale(0.6, 0.66),
 	BackgroundColor3 = THEME.panel,
 	Visible = false,
 	Parent = gui,
@@ -644,10 +644,17 @@ end
 ---------------------------------------------------------------------------
 -- SHOP PANEL
 ---------------------------------------------------------------------------
+local renderWeaponsRef, shopTabsRef, shopTabRef -- set further down
+
 local function renderShop()
 	panelTitle.Text = "SUB SHIPYARD"
 	panelSubtitle.Text = string.format("Fleet %d/%d", #state.subs, Config.MaxFleet)
 	listLayout()
+	shopTabsRef()
+	if shopTabRef() == "Weapons" then
+		renderWeaponsRef()
+		return
+	end
 
 	for i, def in ipairs(Config.Subs) do
 		local row = card(84, i, def.trimColor)
@@ -877,176 +884,8 @@ end
 ---------------------------------------------------------------------------
 -- PET MODELS (built from parts, used for followers + UI previews)
 ---------------------------------------------------------------------------
-local function petPart(model, size, cf, color, material, transparency, shape)
-	local p = Instance.new("Part")
-	p.Anchored = true
-	p.CanCollide = false
-	p.CanQuery = false
-	p.CanTouch = false
-	p.CastShadow = false
-	p.TopSurface = Enum.SurfaceType.Smooth
-	p.BottomSurface = Enum.SurfaceType.Smooth
-	if shape then
-		p.Shape = shape
-	end
-	p.Size = size
-	p.CFrame = cf
-	p.Color = color
-	p.Material = material or Enum.Material.SmoothPlastic
-	p.Transparency = transparency or 0
-	p.Parent = model
-	return p
-end
-
-local function ellipsoid(model, size, cf, color, material, transparency)
-	local p = petPart(model, size, cf, color, material, transparency)
-	new("SpecialMesh", { MeshType = Enum.MeshType.Sphere, Parent = p })
-	return p
-end
-
-local function ball(model, d, cf, color, material)
-	return petPart(model, Vector3.new(d, d, d), cf, color, material, 0, Enum.PartType.Ball)
-end
-
-local function buildPet(def, scale)
-	local model = Instance.new("Model")
-	model.Name = def.id
-	local s = (scale or 1) * (0.8 + def.rarity * 0.12)
-	local root = petPart(model, Vector3.new(0.2, 0.2, 0.2), CFrame.new(), def.color, nil, 1)
-	root.Name = "Root"
-	model.PrimaryPart = root
-
-	local function C(x, y, z)
-		return CFrame.new(x * s, y * s, z * s)
-	end
-	local accentMat = def.glow and Enum.Material.Neon or Enum.Material.SmoothPlastic
-	local function eyes(x, y, z, size)
-		local e = size or 1
-		for _, side in ipairs({ -1, 1 }) do
-			ball(model, 0.32 * s * e, C(side * x, y, z), Color3.new(1, 1, 1))
-			ball(model, 0.17 * s * e, C(side * x * 1.05, y, z - 0.12 * e), Color3.new(0.05, 0.05, 0.05))
-		end
-	end
-
-	local shape = def.shape
-	if shape == "fish" then
-		local body = def.round and Vector3.new(1.6, 1.5, 1.7) or Vector3.new(1.0, 1.2, 2.0)
-		ellipsoid(model, body * s, C(0, 0, 0), def.color)
-		if def.stripes then
-			for _, z in ipairs({ -0.35, 0.35 }) do
-				ellipsoid(model, Vector3.new(body.X + 0.05, body.Y + 0.05, 0.25) * s, C(0, 0, z), def.accent)
-			end
-		end
-		for _, a in ipairs({ 35, -35 }) do
-			petPart(model, Vector3.new(0.12, 0.8, 0.6) * s, C(0, a > 0 and 0.2 or -0.2, body.Z / 2 + 0.25) * CFrame.Angles(math.rad(a), 0, 0),
-				def.accent, accentMat)
-		end
-		if def.fin then
-			petPart(model, Vector3.new(0.15, 1.0, 0.8) * s, C(0, body.Y / 2 + 0.3, 0.1) * CFrame.Angles(math.rad(-25), 0, 0), def.accent, accentMat)
-		else
-			petPart(model, Vector3.new(0.1, 0.45, 0.8) * s, C(0, body.Y / 2, 0.1), def.accent, accentMat)
-		end
-		for _, side in ipairs({ -1, 1 }) do
-			petPart(model, Vector3.new(0.5, 0.08, 0.35) * s, C(side * body.X / 2, -0.2, -0.1) * CFrame.Angles(0, 0, side * 0.4), def.accent, accentMat)
-		end
-		if def.round then
-			for k = 0, 7 do
-				local a = k * math.pi / 4
-				petPart(model, Vector3.new(0.12, 0.35, 0.12) * s,
-					CFrame.Angles(0, 0, a) * C(0, body.Y / 2 + 0.05, 0), def.accent)
-			end
-		end
-		if def.lure then
-			petPart(model, Vector3.new(0.07, 0.07, 1.0) * s, C(0, body.Y / 2 + 0.35, -body.Z / 2 + 0.1) * CFrame.Angles(math.rad(35), 0, 0), def.color)
-			local bulb = ball(model, 0.4 * s, C(0, body.Y / 2 + 0.6, -body.Z / 2 - 0.35), def.accent, Enum.Material.Neon)
-			new("PointLight", { Color = def.accent, Range = 6, Brightness = 2, Parent = bulb })
-		end
-		eyes(body.X * 0.36, 0.15, -body.Z * 0.32)
-	elseif shape == "crab" then
-		ellipsoid(model, Vector3.new(1.8, 0.8, 1.3) * s, C(0, 0, 0), def.color)
-		ellipsoid(model, Vector3.new(1.4, 0.5, 1.0) * s, C(0, 0.2, 0.05), def.accent)
-		for _, side in ipairs({ -1, 1 }) do
-			for k = 1, 3 do
-				petPart(model, Vector3.new(0.9, 0.12, 0.12) * s, C(side * 1.0, -0.25, -0.35 + k * 0.3) * CFrame.Angles(0, 0, side * -0.5), def.color)
-			end
-			petPart(model, Vector3.new(0.15, 0.15, 0.6) * s, C(side * 0.7, 0, -0.75), def.color)
-			ellipsoid(model, Vector3.new(0.55, 0.45, 0.65) * s, C(side * 0.85, 0.05, -1.15), def.color)
-			petPart(model, Vector3.new(0.08, 0.45, 0.08) * s, C(side * 0.25, 0.55, -0.45), def.color)
-			ball(model, 0.26 * s, C(side * 0.25, 0.8, -0.45), Color3.new(1, 1, 1))
-			ball(model, 0.14 * s, C(side * 0.25, 0.8, -0.56), Color3.new(0.05, 0.05, 0.05))
-		end
-	elseif shape == "star" then
-		ellipsoid(model, Vector3.new(0.8, 0.8, 0.4) * s, C(0, 0, 0), def.color)
-		for k = 0, 4 do
-			local rot = CFrame.Angles(0, 0, math.rad(k * 72))
-			ellipsoid(model, Vector3.new(0.5, 1.2, 0.3) * s, rot * C(0, 0.65, 0), def.color)
-			ball(model, 0.16 * s, rot * C(0, 0.8, -0.13), def.accent)
-		end
-		eyes(0.16, 0.08, -0.2, 0.7)
-	elseif shape == "turtle" then
-		ellipsoid(model, Vector3.new(1.8, 0.9, 2.1) * s, C(0, 0.15, 0), def.color)
-		ellipsoid(model, Vector3.new(1.6, 0.5, 1.9) * s, C(0, -0.15, 0), def.accent)
-		for _, z in ipairs({ -0.45, 0.05, 0.55 }) do
-			ellipsoid(model, Vector3.new(0.55, 0.2, 0.45) * s, C(0, 0.55, z), def.accent)
-		end
-		ellipsoid(model, Vector3.new(0.6, 0.55, 0.75) * s, C(0, 0.05, -1.25), def.accent)
-		eyes(0.2, 0.15, -1.45, 0.7)
-		for _, side in ipairs({ -1, 1 }) do
-			petPart(model, Vector3.new(1.0, 0.12, 0.45) * s, C(side * 1.05, -0.05, -0.55) * CFrame.Angles(0, side * math.rad(-25), 0), def.accent)
-			petPart(model, Vector3.new(0.6, 0.12, 0.35) * s, C(side * 0.85, -0.05, 0.75) * CFrame.Angles(0, side * math.rad(25), 0), def.accent)
-		end
-	elseif shape == "jelly" then
-		ellipsoid(model, Vector3.new(1.8, 1.3, 1.8) * s, C(0, 0.4, 0), def.color, accentMat, 0.25)
-		ellipsoid(model, Vector3.new(1.0, 0.7, 1.0) * s, C(0, 0.35, 0), def.accent, accentMat, 0.2)
-		for k = 0, 5 do
-			local a = k * math.pi / 3
-			petPart(model, Vector3.new(0.1, 1.4, 0.1) * s,
-				CFrame.new(math.cos(a) * 0.55 * s, -0.55 * s, math.sin(a) * 0.55 * s) * CFrame.Angles(math.sin(a) * 0.2, 0, math.cos(a) * 0.2),
-				def.accent, accentMat, 0.3)
-		end
-		eyes(0.3, 0.3, -0.82, 0.8)
-	elseif shape == "octopus" then
-		ellipsoid(model, Vector3.new(1.4, 1.7, 1.4) * s, C(0, 0.55, 0.1), def.color)
-		for _, pos in ipairs({ { 0.35, 0.9, 0.5 }, { -0.4, 1.0, 0.35 }, { 0.1, 1.25, 0.2 } }) do
-			ball(model, 0.22 * s, C(pos[1], pos[2], pos[3] - 0.6), def.accent, accentMat)
-		end
-		for k = 0, 7 do
-			local rot = CFrame.Angles(0, math.rad(k * 45), 0)
-			petPart(model, Vector3.new(0.22, 1.3, 0.22) * s, rot * C(0, -0.45, -0.5) * CFrame.Angles(math.rad(-35), 0, 0), def.color)
-			ball(model, 0.25 * s, rot * C(0, -0.95, -0.85), def.accent, accentMat)
-		end
-		eyes(0.32, 0.45, -0.55)
-	elseif shape == "ray" then
-		petPart(model, Vector3.new(2.35, 0.12, 2.35) * s, C(0, -0.05, 0) * CFrame.Angles(0, math.rad(45), 0), def.accent, accentMat)
-		petPart(model, Vector3.new(2.2, 0.2, 2.2) * s, C(0, 0, 0) * CFrame.Angles(0, math.rad(45), 0), def.color)
-		ellipsoid(model, Vector3.new(0.9, 0.45, 1.6) * s, C(0, 0.08, 0), def.color)
-		petPart(model, Vector3.new(0.08, 0.08, 2.0) * s, C(0, 0, 2.0), def.color)
-		ball(model, 0.18 * s, C(0, 0, 3.0), def.accent, accentMat)
-		eyes(0.3, 0.22, -0.6, 0.7)
-	else -- eel
-		local segments = 6
-		for i = 1, segments do
-			local d = 0.9 - i * 0.08
-			ball(model, d * s, C(math.sin(i * 0.9) * 0.3, 0, (i - 1) * 0.55), (i % 2 == 0) and def.accent or def.color,
-				(i % 2 == 0) and accentMat or nil)
-			if def.rarity >= 4 then
-				petPart(model, Vector3.new(0.05, 0.35, 0.3) * s, C(math.sin(i * 0.9) * 0.3, d * 0.5, (i - 1) * 0.55), def.accent, accentMat)
-			end
-		end
-		ellipsoid(model, Vector3.new(0.9, 0.8, 1.2) * s, C(0, 0, -0.6), def.color)
-		if def.rarity >= 4 then
-			for _, side in ipairs({ -1, 1 }) do
-				petPart(model, Vector3.new(0.1, 0.55, 0.1) * s, C(side * 0.25, 0.5, -0.4) * CFrame.Angles(math.rad(30), 0, 0), def.accent, accentMat)
-			end
-		end
-		eyes(0.25, 0.2, -0.95, 0.8)
-	end
-
-	if def.glow then
-		new("PointLight", { Color = def.accent, Range = 8, Brightness = 1.5, Parent = root })
-	end
-	return model
-end
+local Models = require(ReplicatedStorage:WaitForChild("SalvageModels"))
+local buildPet = Models.Build
 
 ---------------------------------------------------------------------------
 -- PET FOLLOWERS (everyone's equipped pets swim behind them)
@@ -1329,7 +1168,7 @@ end
 
 local function renderPets()
 	panelTitle.Text = "PET TANK"
-	panelSubtitle.Text = string.format("Pets %d/%d  |  Equipped %d/%d", #state.pets, Config.MaxPets, #state.equipped, Config.MaxEquipped)
+	panelSubtitle.Text = string.format("Pets %d/%d  |  Equipped %d/%d", #state.pets, Config.MaxPets, #state.equipped, state.maxEquipped)
 	listLayout()
 
 	-- bonus summary
@@ -1610,7 +1449,7 @@ local function renderTrade()
 	panelTitle.Text = "TRADING"
 	listLayout()
 
-	if (state.level or 1) < Config.TradeUnlockLevel then
+	if (state.bestLevel or 1) < Config.TradeUnlockLevel then
 		panelSubtitle.Text = "Locked"
 		local lock = card(110, 1, THEME.muted)
 		text({
@@ -1869,10 +1708,745 @@ declineButton.MouseButton1Click:Connect(function()
 	requestPopup.Visible = false
 end)
 
+local renderPanelRef -- set below
+
+---------------------------------------------------------------------------
+-- SHARED BITS FOR THE NEW PANELS
+---------------------------------------------------------------------------
+local stateReceivedAt = os.clock()
+
+local function formatTime(seconds)
+	seconds = math.max(0, math.floor(seconds))
+	if seconds >= 86400 then
+		return string.format("%dd %dh", seconds // 86400, (seconds % 86400) // 3600)
+	elseif seconds >= 3600 then
+		return string.format("%dh %02dm", seconds // 3600, (seconds % 3600) // 60)
+	end
+	return string.format("%d:%02d", seconds // 60, seconds % 60)
+end
+
+local function secondsLeft(value)
+	return (value or 0) - (os.clock() - stateReceivedAt)
+end
+
+-- 0.15 -> 15 (rounded, so 0.45 never shows as 44)
+local function pct(fraction)
+	return math.floor(fraction * 100 + 0.5)
+end
+
+local function bar(parent, position, size, fraction, color)
+	local back = new("Frame", { Position = position, Size = size, BackgroundColor3 = THEME.bg, Parent = parent })
+	corner(back, 4)
+	local fill = new("Frame", { Size = UDim2.fromScale(math.clamp(fraction, 0, 1), 1), BackgroundColor3 = color, Parent = back })
+	corner(fill, 4)
+	return back
+end
+
+local armedButtons = {}
+-- A button that needs two taps (for things that can't be undone)
+local function confirmButton(btn, label, onConfirm)
+	btn.MouseButton1Click:Connect(function()
+		if armedButtons[label] then
+			armedButtons[label] = nil
+			onConfirm()
+		else
+			armedButtons[label] = true
+			btn.Text = "TAP AGAIN TO CONFIRM"
+			task.delay(3, function()
+				armedButtons[label] = nil
+			end)
+		end
+	end)
+end
+
+---------------------------------------------------------------------------
+-- SHOP: WEAPONS TAB
+---------------------------------------------------------------------------
+local shopTab = "Subs"
+
+local function shopTabs()
+	local tabs = card(48, 0)
+	for i, name in ipairs({ "Subs", "Weapons" }) do
+		local selected = shopTab == name
+		local tab = button({
+			Position = UDim2.new((i - 1) * 0.5, 8, 0, 7),
+			Size = UDim2.new(0.5, -12, 0, 34),
+			Text = name:upper(),
+			BackgroundColor3 = selected and THEME.accent or THEME.bg,
+			TextColor3 = selected and THEME.bg or THEME.text,
+			Parent = tabs,
+		})
+		tab.MouseButton1Click:Connect(function()
+			shopTab = name
+			renderPanelRef()
+		end)
+	end
+end
+
+shopTabsRef = function()
+	shopTabs()
+end
+shopTabRef = function()
+	return shopTab
+end
+
+local function renderWeapons()
+	panelTitle.Text = "WEAPONS"
+	panelSubtitle.Text = string.format("Damage bonus x%.2f from rebirths", state.multipliers.damage)
+	for i, weapon in ipairs(Config.Weapons) do
+		local owned = table.find(state.weapons, weapon.id) ~= nil
+		local equipped = state.weapon == weapon.id
+		if owned or not weapon.seasonOnly then
+			local row = card(74, i, weapon.tip)
+			local swatch = new("Frame", {
+				Size = UDim2.new(0, 46, 0, 46),
+				Position = UDim2.new(0, 14, 0.5, -23),
+				BackgroundColor3 = weapon.color,
+				Parent = row,
+			})
+			corner(swatch, 10)
+			stroke(swatch, weapon.tip, 3, 0)
+			text({
+				Size = UDim2.new(1, -250, 0, 22),
+				Position = UDim2.new(0, 74, 0, 12),
+				Text = weapon.name .. (weapon.seasonOnly and "  (Season)" or ""),
+				Font = Enum.Font.GothamBlack,
+				Parent = row,
+			})
+			text({
+				Size = UDim2.new(1, -250, 0, 16),
+				Position = UDim2.new(0, 74, 0, 40),
+				Text = string.format("%s damage  |  %d stud reach  |  %.2fs per hit",
+					Config.FormatNumber(weapon.damage), weapon.range, weapon.cooldown),
+				Font = Enum.Font.GothamMedium,
+				TextColor3 = THEME.muted,
+				MaxTextSize = 14,
+				Parent = row,
+			})
+			local label, color
+			if equipped then
+				label, color = "EQUIPPED", Color3.fromRGB(60, 65, 75)
+			elseif owned then
+				label, color = "EQUIP", Color3.fromRGB(40, 140, 200)
+			else
+				local isPearls = weapon.currency == "Pearls"
+				local affordable = (isPearls and state.pearls or state.coins) >= weapon.price
+				label = Config.FormatNumber(weapon.price) .. (isPearls and " Pearls" or " Coins")
+				color = affordable and (isPearls and Color3.fromRGB(150, 120, 230) or Color3.fromRGB(40, 170, 90)) or Color3.fromRGB(60, 65, 75)
+			end
+			local b = button({
+				AnchorPoint = Vector2.new(1, 0.5),
+				Position = UDim2.new(1, -14, 0.5, 0),
+				Size = UDim2.new(0, 150, 0, 42),
+				Text = label,
+				BackgroundColor3 = color,
+				Parent = row,
+			})
+			b.MouseButton1Click:Connect(function()
+				if owned and not equipped then
+					Action:FireServer("EquipWeapon", weapon.id)
+				elseif not owned then
+					Action:FireServer("BuyWeapon", weapon.id)
+				end
+			end)
+		end
+	end
+	local tip = card(46, 99, THEME.muted)
+	text({
+		Size = UDim2.new(1, -24, 0, 30),
+		Position = UDim2.new(0, 12, 0.5, -15),
+		Text = "Take a portal on the island to a hunting ground, hold your weapon and click (or tap) to attack.",
+		Font = Enum.Font.Gotham,
+		TextColor3 = THEME.muted,
+		TextWrapped = true,
+		MaxTextSize = 13,
+		Parent = tip,
+	})
+end
+
+renderWeaponsRef = renderWeapons
+
+---------------------------------------------------------------------------
+-- QUESTS PANEL
+---------------------------------------------------------------------------
+local function questDef(id)
+	for _, pool in ipairs({ Config.DailyQuests, Config.WeeklyQuests }) do
+		for _, def in ipairs(pool) do
+			if def.id == id then
+				return def
+			end
+		end
+	end
+	return nil
+end
+
+local function questRows(list, scope, startOrder)
+	for i, q in ipairs(list) do
+		local def = questDef(q.id)
+		if def then
+			local done = q.progress >= def.target
+			local row = card(74, startOrder + i, q.claimed and THEME.muted or (done and THEME.good or THEME.accent))
+			text({
+				Position = UDim2.new(0, 14, 0, 10),
+				Size = UDim2.new(1, -180, 0, 20),
+				Text = string.format(def.text, def.target),
+				Font = Enum.Font.GothamBlack,
+				TextColor3 = q.claimed and THEME.muted or THEME.text,
+				MaxTextSize = 17,
+				Parent = row,
+			})
+			bar(row, UDim2.new(0, 14, 0, 36), UDim2.new(1, -180, 0, 8), q.progress / def.target, done and THEME.good or THEME.accent)
+			text({
+				Position = UDim2.new(0, 14, 0, 50),
+				Size = UDim2.new(1, -180, 0, 16),
+				Text = string.format('%d/%d   <font color="%s">+%s coins</font>  <font color="%s">+%d pearls</font>  <font color="%s">+%d season XP</font>',
+					q.progress, def.target, "#" .. THEME.gold:ToHex(), Config.FormatNumber(def.reward.coins * state.level),
+					"#" .. THEME.pearl:ToHex(), def.reward.pearls, "#" .. Color3.fromRGB(255, 90, 220):ToHex(), def.reward.seasonXp),
+				RichText = true,
+				Font = Enum.Font.GothamMedium,
+				TextColor3 = THEME.muted,
+				MaxTextSize = 13,
+				Parent = row,
+			})
+			local claim = button({
+				AnchorPoint = Vector2.new(1, 0.5),
+				Position = UDim2.new(1, -12, 0.5, 0),
+				Size = UDim2.new(0, 140, 0, 40),
+				Text = q.claimed and "CLAIMED" or (done and "CLAIM" or "IN PROGRESS"),
+				BackgroundColor3 = (done and not q.claimed) and Color3.fromRGB(40, 170, 90) or Color3.fromRGB(60, 65, 75),
+				TextColor3 = (done and not q.claimed) and THEME.text or THEME.muted,
+				MaxTextSize = 15,
+				Parent = row,
+			})
+			claim.MouseButton1Click:Connect(function()
+				if done and not q.claimed then
+					Action:FireServer("ClaimQuest", scope, i)
+				end
+			end)
+		end
+	end
+end
+
+local questTimerLabels = {}
+local function renderQuests()
+	panelTitle.Text = "QUESTS"
+	panelSubtitle.Text = "Rewards grow with your level"
+	listLayout()
+	questTimerLabels.daily = sectionTitle("DAILY", 1)
+	questRows(state.dailyQuests, "daily", 1)
+	questTimerLabels.weekly = sectionTitle("WEEKLY", 50)
+	questRows(state.weeklyQuests, "weekly", 50)
+end
+
+---------------------------------------------------------------------------
+-- SEASON PASS PANEL
+---------------------------------------------------------------------------
+local TRACK_COLORS = {
+	free = Color3.fromRGB(150, 175, 195),
+	premium = Color3.fromRGB(255, 205, 80),
+	mystic = Color3.fromRGB(255, 90, 220),
+	bonus = Color3.fromRGB(235, 230, 255),
+}
+
+local function ownsTrack(season, track)
+	if track == "free" then
+		return true
+	elseif track == "premium" then
+		return season.premium or season.mystic
+	end
+	return season.mystic
+end
+
+local function renderSeason()
+	local cfg = Config.Season
+	local season = state.season
+	local tier = Config.SeasonTier(season.xp)
+	panelTitle.Text = "SEASON PASS"
+	panelSubtitle.Text = cfg.name
+	listLayout()
+
+	-- header: tier, xp bar, buy + prestige buttons
+	local head = card(132, 0, TRACK_COLORS.mystic)
+	local tierText = tier <= cfg.tiers and ("TIER " .. tier .. " / " .. cfg.tiers) or ("TIER " .. cfg.tiers .. "  +" .. (tier - cfg.tiers) .. " BONUS")
+	text({
+		Position = UDim2.new(0, 14, 0, 10),
+		Size = UDim2.new(0.5, 0, 0, 26),
+		Text = tierText,
+		Font = Enum.Font.GothamBlack,
+		MaxTextSize = 24,
+		Parent = head,
+	})
+	local stars = ""
+	for p = 1, cfg.maxPrestige do
+		stars ..= p <= season.prestige and "[*]" or "[ ]"
+	end
+	text({
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -14, 0, 12),
+		Size = UDim2.new(0.45, 0, 0, 20),
+		Text = "Prestige " .. season.prestige .. "/" .. cfg.maxPrestige .. "  " .. stars,
+		Font = Enum.Font.GothamBlack,
+		TextColor3 = TRACK_COLORS.mystic,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		MaxTextSize = 17,
+		Parent = head,
+	})
+	local into = season.xp % cfg.xpPerTier
+	bar(head, UDim2.new(0, 14, 0, 42), UDim2.new(1, -28, 0, 10), into / cfg.xpPerTier, TRACK_COLORS.mystic)
+	local bonus = season.mystic and cfg.mysticXpBonus or (season.premium and cfg.premiumXpBonus or 0)
+	text({
+		Position = UDim2.new(0, 14, 0, 56),
+		Size = UDim2.new(1, -28, 0, 16),
+		Text = string.format("%d / %d XP to the next tier%s   |   Rewards x%.2f at this prestige",
+			into, cfg.xpPerTier, bonus > 0 and (" (+" .. pct(bonus) .. "% season XP)") or "",
+			cfg.prestigeMultiplier[season.prestige + 1]),
+		Font = Enum.Font.GothamMedium,
+		TextColor3 = THEME.muted,
+		MaxTextSize = 13,
+		Parent = head,
+	})
+
+	local function passButton(xScale, key, owned, label, color)
+		local b = button({
+			Position = UDim2.new(xScale, 14, 0, 82),
+			Size = UDim2.new(0.33, -20, 0, 40),
+			Text = owned and (label .. " OWNED") or label,
+			BackgroundColor3 = owned and Color3.fromRGB(60, 65, 75) or color,
+			TextColor3 = owned and THEME.muted or THEME.bg,
+			MaxTextSize = 15,
+			Parent = head,
+		})
+		b.MouseButton1Click:Connect(function()
+			if not owned then
+				Action:FireServer("Buy", key)
+			end
+		end)
+	end
+	local premium = Config.GetProductByKey("SeasonPremium")
+	local mystic = Config.GetProductByKey("SeasonMystic")
+	passButton(0, "SeasonPremium", season.premium or season.mystic,
+		(season.premium or season.mystic) and "PREMIUM" or ("PREMIUM  R$" .. premium.price), TRACK_COLORS.premium)
+	passButton(0.33, "SeasonMystic", season.mystic, season.mystic and "MYSTIC" or ("MYSTIC  R$" .. mystic.price), TRACK_COLORS.mystic)
+	local canPrestige = season.prestige < cfg.maxPrestige and tier >= cfg.tiers + cfg.prestigeExtraTiers
+	local prestigeButton = button({
+		Position = UDim2.new(0.66, 14, 0, 82),
+		Size = UDim2.new(0.34, -28, 0, 40),
+		Text = season.prestige >= cfg.maxPrestige and "MAX PRESTIGE"
+			or (canPrestige and "PRESTIGE!" or ("PRESTIGE AT TIER " .. (cfg.tiers + cfg.prestigeExtraTiers))),
+		BackgroundColor3 = canPrestige and Color3.fromRGB(230, 140, 40) or Color3.fromRGB(60, 65, 75),
+		TextColor3 = canPrestige and THEME.text or THEME.muted,
+		MaxTextSize = 14,
+		Parent = head,
+	})
+	if canPrestige then
+		confirmButton(prestigeButton, "prestige", function()
+			Action:FireServer("SeasonPrestige")
+		end)
+	end
+
+	-- track headers
+	local headers = new("Frame", { Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1, LayoutOrder = 1, Parent = content })
+	for i, track in ipairs({ "FREE", "PREMIUM", "MYSTIC" }) do
+		text({
+			Position = UDim2.new(0.1 + (i - 1) * 0.3, 0, 0, 0),
+			Size = UDim2.new(0.3, -6, 1, 0),
+			Text = track,
+			Font = Enum.Font.GothamBlack,
+			TextColor3 = TRACK_COLORS[track:lower()],
+			TextXAlignment = Enum.TextXAlignment.Center,
+			MaxTextSize = 15,
+			Parent = headers,
+		})
+	end
+
+	-- one row per tier
+	for t = 1, cfg.tiers do
+		local reached = tier >= t
+		local row = new("Frame", {
+			Size = UDim2.new(1, 0, 0, 46),
+			BackgroundColor3 = reached and THEME.cardHover or THEME.card,
+			LayoutOrder = 1 + t,
+			Parent = content,
+		})
+		corner(row, 8)
+		text({
+			Size = UDim2.new(0.1, -4, 1, 0),
+			Text = tostring(t),
+			Font = Enum.Font.GothamBlack,
+			TextColor3 = reached and THEME.accent or THEME.muted,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			MaxTextSize = 20,
+			Parent = row,
+		})
+		local rewards = cfg.rewards[t] or {}
+		for i, track in ipairs({ "free", "premium", "mystic" }) do
+			local reward = rewards[track]
+			if reward then
+				local label, color = Config.DescribeReward(reward, season.prestige)
+				local claimed = season.claimed[track .. ":" .. t] == true
+				local locked = not ownsTrack(season, track)
+				local cell = new("Frame", {
+					Position = UDim2.new(0.1 + (i - 1) * 0.3, 0, 0, 5),
+					Size = UDim2.new(0.3, -6, 1, -10),
+					BackgroundColor3 = claimed and Color3.fromRGB(30, 80, 50) or THEME.bg,
+					Parent = row,
+				})
+				corner(cell, 6)
+				stroke(cell, TRACK_COLORS[track], 1.5, locked and 0.75 or 0.2)
+				text({
+					Position = UDim2.new(0, 6, 0, 2),
+					Size = UDim2.new(1, -12, 1, -4),
+					Text = (claimed and "GOT: " or (locked and "LOCKED: " or "")) .. label,
+					Font = Enum.Font.GothamBold,
+					TextColor3 = locked and Color3.fromRGB(110, 120, 135) or color,
+					TextXAlignment = Enum.TextXAlignment.Center,
+					TextWrapped = true,
+					MaxTextSize = 13,
+					Parent = cell,
+				})
+			end
+		end
+	end
+	local foot = card(40, 100, THEME.muted)
+	text({
+		Size = UDim2.new(1, -24, 0, 28),
+		Position = UDim2.new(0, 12, 0.5, -14),
+		Text = "Earn season XP from hauls, creatures, quests and events. Prestige to restart with bigger rewards and upgraded season pets.",
+		Font = Enum.Font.Gotham,
+		TextColor3 = THEME.muted,
+		TextWrapped = true,
+		MaxTextSize = 13,
+		Parent = foot,
+	})
+end
+
+---------------------------------------------------------------------------
+-- REBIRTH PANEL
+---------------------------------------------------------------------------
+local function renderRebirth()
+	local rb = Config.Rebirth
+	local r = state.rebirths
+	panelTitle.Text = "REBIRTH"
+	panelSubtitle.Text = "Rebirths " .. r .. "/" .. rb.max
+	listLayout()
+
+	local current = card(64, 1, THEME.gold)
+	text({
+		Position = UDim2.new(0, 14, 0, 8),
+		Size = UDim2.new(1, -28, 0, 20),
+		Text = "YOUR REBIRTH BONUSES",
+		Font = Enum.Font.GothamBlack,
+		TextColor3 = THEME.gold,
+		MaxTextSize = 16,
+		Parent = current,
+	})
+	text({
+		Position = UDim2.new(0, 14, 0, 34),
+		Size = UDim2.new(1, -28, 0, 18),
+		Text = string.format("+%d%% coins   +%d%% XP   +%d%% luck   +%d%% damage   +%d health",
+			pct(r * rb.coinsBonus), pct(r * rb.xpBonus), pct(r * rb.luckBonus), pct(r * rb.damageBonus), r * rb.healthBonus),
+		Font = Enum.Font.GothamMedium,
+		MaxTextSize = 14,
+		Parent = current,
+	})
+
+	if r >= rb.max then
+		local maxed = card(50, 2, THEME.good)
+		text({
+			Size = UDim2.new(1, -28, 0, 24),
+			Position = UDim2.new(0, 14, 0.5, -12),
+			Text = "MAX REBIRTH REACHED. You're a legend of the deep!",
+			Font = Enum.Font.GothamBlack,
+			TextColor3 = THEME.good,
+			MaxTextSize = 18,
+			Parent = maxed,
+		})
+		return
+	end
+
+	local needLevel, needCoins = Config.RebirthRequirement(r)
+	local levelOk, coinsOk = state.level >= needLevel, state.coins >= needCoins
+	local req = card(96, 2)
+	text({
+		Position = UDim2.new(0, 14, 0, 8),
+		Size = UDim2.new(1, -28, 0, 20),
+		Text = "REBIRTH " .. (r + 1) .. " NEEDS",
+		Font = Enum.Font.GothamBlack,
+		TextColor3 = THEME.accent,
+		MaxTextSize = 16,
+		Parent = req,
+	})
+	text({
+		Position = UDim2.new(0, 14, 0, 36),
+		Size = UDim2.new(1, -28, 0, 20),
+		Text = string.format("Level %d   (you: %d)", needLevel, state.level),
+		TextColor3 = levelOk and THEME.good or THEME.danger,
+		MaxTextSize = 16,
+		Parent = req,
+	})
+	text({
+		Position = UDim2.new(0, 14, 0, 62),
+		Size = UDim2.new(1, -28, 0, 20),
+		Text = string.format("%s coins   (you: %s)", Config.FormatNumber(needCoins), Config.FormatNumber(state.coins)),
+		TextColor3 = coinsOk and THEME.good or THEME.danger,
+		MaxTextSize = 16,
+		Parent = req,
+	})
+
+	local info = card(112, 3, THEME.muted)
+	text({
+		Position = UDim2.new(0, 14, 0, 8),
+		Size = UDim2.new(1, -28, 0, 18),
+		Text = string.format("YOU GAIN: +%d%% coins, +%d%% XP, +%d%% luck, +%d%% damage, +%d health (forever)",
+			pct(rb.coinsBonus), pct(rb.xpBonus), pct(rb.luckBonus), pct(rb.damageBonus), rb.healthBonus),
+		Font = Enum.Font.GothamBold,
+		TextColor3 = THEME.good,
+		TextWrapped = true,
+		MaxTextSize = 14,
+		Parent = info,
+	})
+	text({
+		Position = UDim2.new(0, 14, 0, 40),
+		Size = UDim2.new(1, -28, 0, 30),
+		Text = "YOU LOSE: your level, coins, subs and shop weapons.",
+		Font = Enum.Font.GothamBold,
+		TextColor3 = THEME.danger,
+		TextWrapped = true,
+		MaxTextSize = 14,
+		Parent = info,
+	})
+	text({
+		Position = UDim2.new(0, 14, 0, 72),
+		Size = UDim2.new(1, -28, 0, 32),
+		Text = "YOU KEEP: ships, fragments, pets, eggs, pearls, season progress, season weapons, game passes and boosts.",
+		Font = Enum.Font.Gotham,
+		TextColor3 = THEME.text,
+		TextWrapped = true,
+		MaxTextSize = 13,
+		Parent = info,
+	})
+
+	local ready = levelOk and coinsOk
+	local go = card(60, 4, ready and THEME.gold or THEME.muted)
+	local b = button({
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.new(0, 260, 0, 44),
+		Text = ready and "REBIRTH NOW" or "NOT READY YET",
+		BackgroundColor3 = ready and Color3.fromRGB(230, 140, 40) or Color3.fromRGB(60, 65, 75),
+		TextColor3 = ready and THEME.text or THEME.muted,
+		Parent = go,
+	})
+	if ready then
+		confirmButton(b, "rebirth", function()
+			Action:FireServer("Rebirth")
+		end)
+	end
+end
+
+---------------------------------------------------------------------------
+-- STORE PANEL (Robux)
+---------------------------------------------------------------------------
+local function storeCard(parent, order, item, owned, extra)
+	local box = new("Frame", { BackgroundColor3 = THEME.card, LayoutOrder = order, Parent = parent })
+	corner(box, 10)
+	stroke(box, owned and THEME.good or THEME.gold, 1.5, 0.3)
+	text({
+		Position = UDim2.new(0, 10, 0, 8),
+		Size = UDim2.new(1, -20, 0, 20),
+		Text = item.name,
+		Font = Enum.Font.GothamBlack,
+		TextColor3 = THEME.gold,
+		MaxTextSize = 16,
+		Parent = box,
+	})
+	text({
+		Position = UDim2.new(0, 10, 0, 32),
+		Size = UDim2.new(1, -20, 0, 44),
+		Text = item.desc .. (extra or ""),
+		Font = Enum.Font.Gotham,
+		TextColor3 = THEME.text,
+		TextWrapped = true,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		MaxTextSize = 13,
+		Parent = box,
+	})
+	local b = button({
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -8),
+		Size = UDim2.new(1, -20, 0, 34),
+		Text = owned and "OWNED" or ("R$ " .. item.price),
+		BackgroundColor3 = owned and Color3.fromRGB(60, 65, 75) or Color3.fromRGB(40, 170, 90),
+		TextColor3 = owned and THEME.muted or THEME.text,
+		MaxTextSize = 16,
+		Parent = box,
+	})
+	b.MouseButton1Click:Connect(function()
+		if not owned then
+			Action:FireServer("Buy", item.key)
+		end
+	end)
+end
+
+local function renderStore()
+	panelTitle.Text = "STORE"
+	panelSubtitle.Text = state.studio and "Studio: unset passes are free to test" or "Thank you for supporting the game!"
+	listLayout()
+
+	sectionTitle("BOOSTS (stack to add time)", 1)
+	local boosts = gridSection(2, UDim2.new(0.333, -6, 0, 132))
+	local seasonGrid
+	local order = 0
+	for _, product in ipairs(Config.Products) do
+		order += 1
+		if product.boost then
+			local left = secondsLeft(state.boostsLeft[product.boost])
+			storeCard(boosts, order, product, false, left > 0 and ("\nActive: " .. formatTime(left) .. " left") or "")
+		end
+	end
+	sectionTitle("SEASON PASSES (" .. Config.Season.name .. ")", 3)
+	seasonGrid = gridSection(4, UDim2.new(0.5, -6, 0, 132))
+	for _, product in ipairs(Config.Products) do
+		order += 1
+		if product.seasonPass then
+			local owned = (product.seasonPass == "premium" and (state.season.premium or state.season.mystic))
+				or (product.seasonPass == "mystic" and state.season.mystic)
+			storeCard(seasonGrid, order, product, owned)
+		end
+	end
+	sectionTitle("GAME PASSES (forever)", 5)
+	local passes = gridSection(6, UDim2.new(0.333, -6, 0, 132))
+	for i, pass in ipairs(Config.GamePasses) do
+		storeCard(passes, i, pass, state.passes[pass.key] == true)
+	end
+end
+
+---------------------------------------------------------------------------
+-- BOOST TIMERS (top right) + UNDERWATER LOOK IN HUNTING GROUNDS
+---------------------------------------------------------------------------
+local boostHolder = new("Frame", {
+	AnchorPoint = Vector2.new(1, 0),
+	Position = UDim2.new(1, -12, 0, 60),
+	Size = UDim2.new(0, 170, 0, 120),
+	BackgroundTransparency = 1,
+	Parent = gui,
+})
+new("UIListLayout", { Padding = UDim.new(0, 4), HorizontalAlignment = Enum.HorizontalAlignment.Right, Parent = boostHolder })
+local boostLabels = {}
+for _, which in ipairs({ "coins", "luck", "xp" }) do
+	local pill = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 28),
+		BackgroundColor3 = THEME.bg,
+		BackgroundTransparency = 0.15,
+		Visible = false,
+		Parent = boostHolder,
+	})
+	corner(pill, 14)
+	stroke(pill, THEME.good, 2, 0.2)
+	boostLabels[which] = text({
+		Size = UDim2.new(1, -16, 1, -6),
+		Position = UDim2.new(0, 8, 0, 3),
+		Font = Enum.Font.GothamBlack,
+		TextColor3 = THEME.good,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		MaxTextSize = 15,
+		Parent = pill,
+	})
+end
+
+local function updateBoostPills()
+	for which, label in pairs(boostLabels) do
+		local left = state and state.boostsLeft and secondsLeft(state.boostsLeft[which]) or 0
+		label.Parent.Visible = left > 0
+		if left > 0 then
+			label.Text = "2x " .. which:upper() .. "  " .. formatTime(left)
+		end
+	end
+end
+
+local Lighting = game:GetService("Lighting")
+local underwaterCC = nil
+local savedLook = nil
+local currentArena = nil
+
+local function setUnderwater(arenaDef)
+	local atmosphere = Lighting:FindFirstChild("SalvageAtmosphere")
+	if arenaDef then
+		if not savedLook then
+			savedLook = {
+				brightness = Lighting.Brightness,
+				density = atmosphere and atmosphere.Density,
+				color = atmosphere and atmosphere.Color,
+				decay = atmosphere and atmosphere.Decay,
+				haze = atmosphere and atmosphere.Haze,
+			}
+		end
+		local depthDark = (arenaDef.zone - 1) / 4
+		if atmosphere then
+			TweenService:Create(atmosphere, TweenInfo.new(1), {
+				Density = arenaDef.fog,
+				Color = arenaDef.water,
+				Decay = arenaDef.water:Lerp(Color3.new(0, 0, 0), 0.5),
+				Haze = 2,
+			}):Play()
+		end
+		TweenService:Create(Lighting, TweenInfo.new(1), { Brightness = 2 - depthDark * 1.5 }):Play()
+		if not underwaterCC then
+			underwaterCC = new("ColorCorrectionEffect", { Name = "UnderwaterLook", Parent = Lighting })
+		end
+		underwaterCC.TintColor = arenaDef.water:Lerp(Color3.new(1, 1, 1), 0.55)
+		underwaterCC.Saturation = 0.1
+	elseif savedLook then
+		if atmosphere then
+			TweenService:Create(atmosphere, TweenInfo.new(1), {
+				Density = savedLook.density,
+				Color = savedLook.color,
+				Decay = savedLook.decay,
+				Haze = savedLook.haze,
+			}):Play()
+		end
+		TweenService:Create(Lighting, TweenInfo.new(1), { Brightness = savedLook.brightness }):Play()
+		if underwaterCC then
+			underwaterCC:Destroy()
+			underwaterCC = nil
+		end
+		savedLook = nil
+	end
+end
+
+local function updateArenaLook()
+	local character = player.Character
+	local hrp = character and character:FindFirstChild("HumanoidRootPart")
+	local found = nil
+	if hrp then
+		for i, def in ipairs(Config.Arenas) do
+			local offset = hrp.Position - Config.ArenaCenter(i)
+			local half = Config.ArenaSize / 2 + 10
+			if math.abs(offset.X) <= half and math.abs(offset.Z) <= half and offset.Y > -20 and offset.Y < 150 then
+				found = def
+			end
+		end
+	end
+	if found ~= currentArena then
+		currentArena = found
+		setUnderwater(found)
+	end
+end
+
 ---------------------------------------------------------------------------
 -- PANEL SWITCHING
 ---------------------------------------------------------------------------
-local renderers = { Fleet = renderFleet, Shop = renderShop, Logbook = renderLogbook, Pets = renderPets, Trade = renderTrade }
+local renderers = {
+	Fleet = renderFleet,
+	Shop = renderShop,
+	Logbook = renderLogbook,
+	Pets = renderPets,
+	Trade = renderTrade,
+	Quests = renderQuests,
+	Season = renderSeason,
+	Rebirth = renderRebirth,
+	Store = renderStore,
+}
 
 local lastPetsSignature = nil
 
@@ -1904,6 +2478,10 @@ local function renderPanel(force)
 	end)
 end
 
+renderPanelRef = function()
+	renderPanel(true)
+end
+
 local function openPanel(name)
 	if currentPanel == name then
 		currentPanel = nil
@@ -1927,36 +2505,44 @@ end)
 ---------------------------------------------------------------------------
 -- SIDE MENU
 ---------------------------------------------------------------------------
-local menu = new("Frame", {
-	AnchorPoint = Vector2.new(0, 0.5),
-	Position = UDim2.new(0, 12, 0.5, 0),
-	Size = UDim2.new(0, 112, 0, 6 * 48 + 5 * 8),
-	BackgroundTransparency = 1,
-	Parent = gui,
-})
-new("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder, Parent = menu })
+local function makeMenu(items, onRight)
+	local holder = new("Frame", {
+		AnchorPoint = Vector2.new(onRight and 1 or 0, 0.5),
+		Position = UDim2.new(onRight and 1 or 0, onRight and -12 or 12, 0.5, 20),
+		Size = UDim2.new(0, 108, 0, #items * 46 + (#items - 1) * 7),
+		BackgroundTransparency = 1,
+		Parent = gui,
+	})
+	new("UIListLayout", { Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder, Parent = holder })
+	for i, item in ipairs(items) do
+		local b = button({
+			Size = UDim2.new(1, 0, 0, 46),
+			Text = item.label,
+			LayoutOrder = i,
+			BackgroundColor3 = THEME.bg,
+			TextColor3 = item.color,
+			MaxTextSize = 17,
+			Parent = holder,
+		})
+		stroke(b, item.color, 2, 0.15)
+		b.MouseButton1Click:Connect(item.action)
+	end
+end
 
-local menuItems = {
+makeMenu({
 	{ label = "FLEET", color = THEME.accent, action = function() openPanel("Fleet") end },
 	{ label = "SHOP", color = Color3.fromRGB(80, 200, 110), action = function() openPanel("Shop") end },
-	{ label = "LOGBOOK", color = Color3.fromRGB(165, 120, 255), action = function() openPanel("Logbook") end },
 	{ label = "PETS", color = Color3.fromRGB(255, 130, 200), action = function() openPanel("Pets") end },
+	{ label = "LOGBOOK", color = Color3.fromRGB(165, 120, 255), action = function() openPanel("Logbook") end },
+	{ label = "QUESTS", color = Color3.fromRGB(120, 200, 255), action = function() openPanel("Quests") end },
+}, false)
+makeMenu({
+	{ label = "SEASON", color = Color3.fromRGB(255, 90, 220), action = function() openPanel("Season") end },
+	{ label = "STORE", color = THEME.gold, action = function() openPanel("Store") end },
+	{ label = "REBIRTH", color = Color3.fromRGB(255, 160, 60), action = function() openPanel("Rebirth") end },
 	{ label = "TRADE", color = Color3.fromRGB(230, 140, 40), action = function() openPanel("Trade") end },
-	{ label = "MY BAY", color = THEME.gold, action = function() Action:FireServer("GoToBay") end },
-}
-for i, item in ipairs(menuItems) do
-	local b = button({
-		Size = UDim2.new(1, 0, 0, 48),
-		Text = item.label,
-		LayoutOrder = i,
-		BackgroundColor3 = THEME.bg,
-		TextColor3 = item.color,
-		MaxTextSize = 18,
-		Parent = menu,
-	})
-	stroke(b, item.color, 2, 0.15)
-	b.MouseButton1Click:Connect(item.action)
-end
+	{ label = "MY BAY", color = THEME.text, action = function() Action:FireServer("GoToBay") end },
+}, true)
 
 ---------------------------------------------------------------------------
 -- SERVER -> CLIENT
@@ -1965,6 +2551,7 @@ local displayedCoins = 0
 
 StateUpdate.OnClientEvent:Connect(function(newState)
 	state = newState
+	stateReceivedAt = os.clock()
 	local target = state.coins
 	local from = displayedCoins
 	displayedCoins = target
@@ -2034,6 +2621,33 @@ Notify.OnClientEvent:Connect(function(msg)
 		toast(msg.text, THEME.danger, 3)
 	elseif kind == "info" then
 		toast(msg.text, THEME.accent, 3)
+	elseif kind == "purchase" then
+		toast(msg.text, THEME.good, 5)
+	elseif kind == "seasonTier" then
+		showSplash("SEASON TIER " .. msg.tier .. "!", Color3.fromRGB(255, 90, 220))
+	elseif kind == "seasonRewards" then
+		for _, entry in ipairs(msg.rewards) do
+			local label, color = Config.DescribeReward(entry.reward, entry.raw and 0 or msg.prestige)
+			toast(string.format('<font color="#%s">%s</font> tier %d: %s', TRACK_COLORS[entry.track]:ToHex(), entry.track:upper(), entry.tier, label),
+				color, 5)
+		end
+	elseif kind == "seasonPrestige" then
+		showSplash("SEASON PRESTIGE " .. msg.prestige .. "!", Color3.fromRGB(255, 90, 220))
+		toast("The pass has reset. Every reward is bigger now, and season pets are upgraded!", Color3.fromRGB(255, 90, 220), 7)
+	elseif kind == "questDone" then
+		toast("Quest complete: " .. msg.text .. ". Claim it in QUESTS!", THEME.good, 5)
+	elseif kind == "questClaimed" then
+		toast(string.format('Quest reward: <font color="#%s">+%s coins</font> +%d pearls +%d season XP',
+			THEME.gold:ToHex(), Config.FormatNumber(msg.coins), msg.pearls, msg.seasonXp), THEME.good, 4)
+	elseif kind == "rebirth" then
+		showSplash("REBIRTH " .. msg.rebirths .. "!", THEME.gold)
+		toast("Your bonuses are permanent. Time to dive again!", THEME.gold, 6)
+	elseif kind == "kill" then
+		if msg.boss then
+			showSplash("LEVIATHAN SLAIN!", Color3.fromRGB(60, 255, 230))
+		end
+		toast(string.format('Defeated %s  <font color="#%s">+%s coins</font>%s', msg.enemy, THEME.gold:ToHex(),
+			Config.FormatNumber(msg.coins), msg.pearls and ("  +" .. msg.pearls .. " pearls") or ""), Color3.fromRGB(255, 120, 120), 2)
 	elseif kind == "egg" then
 		local egg = Config.GetEgg(msg.egg)
 		toast(string.format('<font color="%s">EGG!</font> You found a %s. Hatch it in the PETS menu.', hex(egg.spots), egg.name), egg.spots, 5)
@@ -2093,6 +2707,20 @@ Action:FireServer("RequestState")
 while true do
 	task.wait(0.2)
 	refreshBanner()
+	updateBoostPills()
+	updateArenaLook()
+	if currentPanel == "Quests" and state then
+		if questTimerLabels.daily and questTimerLabels.daily.Parent then
+			questTimerLabels.daily.Text = "DAILY  -  new quests in " .. formatTime(secondsLeft(state.dailyResetIn))
+		end
+		if questTimerLabels.weekly and questTimerLabels.weekly.Parent then
+			questTimerLabels.weekly.Text = "WEEKLY  -  new quests in " .. formatTime(secondsLeft(state.weeklyResetIn))
+		end
+		if secondsLeft(state.dailyResetIn) < -2 then
+			Action:FireServer("RequestState")
+			state.dailyResetIn = 1e9
+		end
+	end
 	if currentPanel == "Fleet" and state then
 		for i, label in pairs(fleetStatusLabels) do
 			local sub = state.subs[i]
