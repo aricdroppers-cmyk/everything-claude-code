@@ -538,6 +538,46 @@ Config.DailyWeekBonus = 0.25
 Config.DailyMaxMultiplier = 2
 
 ---------------------------------------------------------------------------
+-- STARTER GIFT (given once, the very first time someone joins)
+---------------------------------------------------------------------------
+Config.StarterGift = {
+	{ kind = "coins", amount = 500 },
+	{ kind = "pearls", amount = 10 },
+	{ kind = "egg", id = "TidePool", amount = 1 },
+	{ kind = "boost", boost = "coins", minutes = 15 },
+}
+
+---------------------------------------------------------------------------
+-- TUTORIAL ("Getting Started"). Steps finish by themselves when the check
+-- becomes true. progress returns (current, goal) for the progress bar.
+-- menu = which menu button pulses, target = "portal" draws the guide line
+-- to the Sunlit Shallows portal.
+---------------------------------------------------------------------------
+Config.Tutorial = {
+	{ text = "Haul up your first crate", hint = "Follow the golden line to your dock and hold E on the crate.",
+		progress = function(d) return d.stats.hauls, 1 end, reward = { { kind = "coins", amount = 100 } } },
+	{ text = "Haul up 5 crates", hint = "Your subs keep diving. Collect each crate as it comes up.",
+		progress = function(d) return d.stats.hauls, 5 end, reward = { { kind = "coins", amount = 150 } } },
+	{ text = "Buy a second sub", hint = "Open SHOP and buy a sub. More subs = more crates!", menu = "SHOP",
+		progress = function(d) return #d.subs, 2 end, reward = { { kind = "pearls", amount = 5 } } },
+	{ text = "Restore your first ship", hint = "Open LOGBOOK to see which fragments you still need.", menu = "LOGBOOK",
+		progress = function(d) local n = 0 for _ in pairs(d.ships) do n += 1 end return n, 1 end,
+		reward = { { kind = "coins", amount = 300 } } },
+	{ text = "Hatch an egg", hint = "Open PETS and press HATCH on your Tide Pool Egg.", menu = "PETS",
+		progress = function(d) return d.stats.hatched, 1 end, reward = { { kind = "egg", id = "TidePool", amount = 1 } } },
+	{ text = "Visit a hunting ground", hint = "Walk to the glowing portals on the island and dive into Sunlit Shallows.", target = "portal",
+		progress = function(d) return d.stats.arenaVisits, 1 end, reward = { { kind = "pearls", amount = 5 } } },
+	{ text = "Defeat 3 sea creatures", hint = "Press 1 (or tap your spear) to take it out, then click or tap creatures.",
+		progress = function(d) return d.stats.kills, 3 end, reward = { { kind = "coins", amount = 400 } } },
+	{ text = "Reach Level 5", hint = "Hauls, kills and quests all give XP.",
+		progress = function(d) return d.level + d.rebirths * 100, 5 end, reward = { { kind = "boost", boost = "xp", minutes = 15 } } },
+	{ text = "Rebirth for the first time", hint = "Open REBIRTH. You need Level 7 and 13K coins.", menu = "REBIRTH",
+		progress = function(d) return d.rebirths, 1 end,
+		reward = { { kind = "pearls", amount = 25 }, { kind = "charm", amount = 1 } } },
+}
+Config.TutorialDailyAfterStep = 3 -- don't pop up the daily calendar for brand-new players until this step
+
+---------------------------------------------------------------------------
 -- GLOBAL LEADERBOARDS (boards on the island, all servers, all time)
 ---------------------------------------------------------------------------
 Config.Leaderboards = {

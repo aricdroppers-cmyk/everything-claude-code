@@ -80,20 +80,20 @@ local function fire(prompt, who)
 end
 
 presetData["player_1"] = {
-	coins = 100000, pearls = 50, level = 12, xp = 0,
+	coins = 100000, pearls = 50, level = 12, xp = 0, stats = { hauls = 5 },
 	subs = { { id = "Rowboat", depth = 1 } },
 	parts = { ["FishingSkiff/Hull"] = 3, ["FishingSkiff/Mast"] = 1 },
 	ships = {}, eggs = { TidePool = 2 },
 	pets = { { uid = 1, id = "Clownfish" }, { uid = 2, id = "Octopus" } },
 	equipped = { 1 }, nextPetUid = 3, autoSell = false,
 }
-presetData["player_2"] = {
+presetData["player_2"] = { starterGiven = true, tutorial = { step = 99 },
 	coins = 500, pearls = 0, level = 10, xp = 0,
 	subs = { { id = "Rowboat", depth = 1 } },
 	parts = { ["FishingSkiff/Oars"] = 1, ["FishingSkiff/Net"] = 1, ["FishingSkiff/Mast"] = 1 },
 	ships = {}, eggs = { Kelp = 1 }, pets = {}, equipped = {}, nextPetUid = 1, autoSell = true,
 }
-presetData["player_3"] = { coins = 0, level = 3 }
+presetData["player_3"] = { starterGiven = true, tutorial = { step = 99 }, coins = 0, level = 3 }
 
 -- boot the server
 Config.AntiCheat.enabled = false -- tests teleport characters around; turned on in its own section
@@ -345,7 +345,7 @@ check(lastState[1].subs[2].depth == 3, "can't exceed sub max depth")
 -- ======================= NEW SYSTEMS =======================
 local day = math.floor(fakeTime / 86400)
 local week = math.floor((fakeTime + 3 * 86400) / 604800)
-presetData["player_4"] = {
+presetData["player_4"] = { starterGiven = true, tutorial = { step = 99 },
 	coins = 0, level = 15,
 	season = { id = "S1", xp = 24999, prestige = 0, premium = false, mystic = false, claimed = {} },
 	quests = {
@@ -353,12 +353,12 @@ presetData["player_4"] = {
 		weekly = { key = week, list = { { id = "WeeklyHaul", progress = 500, claimed = false } } },
 	},
 }
-presetData["player_5"] = {
+presetData["player_5"] = { starterGiven = true, tutorial = { step = 99 },
 	coins = 300000, level = 25, xp = 0,
 	subs = { { id = "Rowboat", depth = 1 }, { id = "IronMinnow", depth = 3 }, { id = "BrassBell", depth = 2 } },
 	weapons = { "DriftwoodSpear", "BrassHarpoon", "TidebreakerTrident" }, weapon = "BrassHarpoon",
 }
-presetData["player_6"] = { coins = 0, level = 30 }
+presetData["player_6"] = { starterGiven = true, tutorial = { step = 99 }, coins = 0, level = 30 }
 
 -- ===== Season pass: free rewards on join =====
 local D = makePlayer(4, "Dana")
@@ -753,7 +753,7 @@ check(Config.SaleActive(Config.GetProductByKey("SeasonMystic"), 1798761540 + 1) 
 
 -- daily streak
 local H = makePlayer(8, "Hana")
-presetData["player_8"] = { coins = 0, level = 4 }
+presetData["player_8"] = { starterGiven = true, tutorial = { step = 99 }, coins = 0, level = 4 }
 join(H)
 check(lastNotify(8, "dailyAvailable") ~= nil, "daily reward offered on join")
 check(lastState[8].login.canClaim == true and lastState[8].login.streak == 1, "day 1 ready")
@@ -829,7 +829,7 @@ for _, extra in ipairs(fullBays) do
 end
 Config.AntiCheat.enabled = true
 local G = makePlayer(9, "Gus")
-presetData["player_9"] = { coins = 0, level = 3 }
+presetData["player_9"] = { starterGiven = true, tutorial = { step = 99 }, coins = 0, level = 3 }
 join(G)
 local ghrp = G.Character.PrimaryPart
 ghrp.CFrame = CFrame.new(0, 5, 0)
@@ -862,6 +862,114 @@ end
 tick(0.6)
 check(rawget(G, "__props").kicked ~= nil, "kicked after too many strikes in a minute")
 Config.AntiCheat.enabled = false
+
+
+-- ======================= ROUND 5: starter gift + tutorial (a brand-new player) =======================
+leave(G)
+leave(H)
+check(lastState[1].tutorial.active == false, "veteran players skip the tutorial")
+check(lastNotify(1, "starterGift") == nil, "veterans don't get the starter gift")
+clearNotes()
+local T = makePlayer(20, "Tia") -- no saved data at all = brand new
+join(T)
+local sT = lastState[20]
+check(lastNotify(20, "starterGift") ~= nil, "starter gift on first join")
+check(sT.coins == 500 and sT.pearls == 10 and (sT.eggs.TidePool or 0) == 1, "gift = 500 coins, 10 pearls, Tide Pool Egg")
+check(sT.boostsLeft.coins ~= nil, "gift includes a coin boost")
+check(sT.tutorial.active and sT.tutorial.step == 1, "tutorial starts at step 1")
+check(lastNotify(20, "dailyAvailable") == nil, "daily popup waits until the tutorial is a few steps in")
+
+local usedT = {}
+local function haulT(n)
+	for _ = 1, n do
+		tick(12)
+		for _, pr in ipairs(created) do
+			if pr.ClassName == "ProximityPrompt" and string.find(tostring(pr.ObjectText), "Tia") and not usedT[pr] then
+				usedT[pr] = true
+				fire(pr, T)
+			end
+		end
+	end
+end
+-- keep hauling until the step completes (a Storm Surge event can sink a crate)
+local function haulUntilStep(stepNumber, maxTicks)
+	for _ = 1, maxTicks do
+		if lastState[20].tutorial.step >= stepNumber then
+			return
+		end
+		haulT(1)
+	end
+end
+haulUntilStep(2, 10)
+check(lastState[20].tutorial.step >= 2, "step 1 done after the first haul")
+check(lastState[20].hauls >= 1, "at least one haul")
+haulUntilStep(3, 25)
+check(lastState[20].tutorial.step >= 3 and lastState[20].hauls >= 5, "step 2 done after 5 hauls")
+act(T, "BuySub", "Rowboat")
+check(lastState[20].tutorial.step >= 4, "step 3 done after buying a sub")
+check(lastNotify(20, "dailyAvailable") ~= nil, "daily popup offered once the tutorial is underway")
+for _ = 1, 40 do
+	if lastState[20].tutorial.step >= 5 then break end
+	haulT(1)
+end
+check(lastState[20].tutorial.step >= 5, "step 4 done after restoring a ship")
+act(T, "HatchEgg", "TidePool")
+check(lastState[20].tutorial.step >= 6, "step 5 done after hatching")
+check(lastState[20].tutorial.target == "portal", "step 6 points at the portal")
+fire(portal("Sunlit"), T)
+for _ = 1, 4 do
+	fakeClock += 0.25
+	heartbeat(0.25)
+end
+check(lastState[20].tutorial.step >= 7, "step 6 done after entering a hunting ground")
+local tTool = T:FindFirstChildOfClass("Backpack"):FindFirstChildOfClass("Tool")
+local tHrp = T.Character.PrimaryPart
+for _ = 1, 400 do
+	if lastState[20].tutorial.step >= 8 then break end
+	fakeClock += 0.25
+	heartbeat(0.25)
+	runDelayed()
+	runSleeping() -- let death animations finish so dead creatures disappear
+	local nearest, nd = nil, math.huge
+	for _, obj in ipairs(created) do
+		if (obj.Name == "SnappyCrab" or obj.Name == "StingJelly") and obj.ClassName == "Model" and not rawget(obj, "__destroyed") then
+			local d = (obj.PrimaryPart.CFrame.Position - tHrp.CFrame.Position).Magnitude
+			if d < nd then nearest, nd = obj, d end
+		end
+	end
+	if nearest then
+		local p = nearest.PrimaryPart.CFrame.Position
+		tHrp.CFrame = CFrame.lookAt(p + Vector3.new(0, 0, 4), p)
+		T.Character:FindFirstChildOfClass("Humanoid").Health = 300
+		handlers(tTool.Activated)[1]()
+	end
+end
+check(lastState[20].tutorial.step >= 8, "step 7 done after defeating 3 creatures (kills "
+	.. tostring(lastState[20].tutorial.current) .. ", step " .. lastState[20].tutorial.step .. ", hp " .. T.Character:FindFirstChildOfClass("Humanoid").Health
+	.. ", pos " .. tostring(tHrp.CFrame.Position) .. ", level " .. lastState[20].level .. ")")
+haulT(1)
+for _ = 1, 150 do
+	if lastState[20].tutorial.step >= 9 then break end
+	haulT(1)
+end
+check(lastState[20].tutorial.step >= 9, "step 8 done at Level 5 (level " .. lastState[20].level .. ")")
+local tPearls = lastState[20].pearls
+buyProduct(T, "InstantRebirth", "tia-rb")
+check(lastState[20].tutorial.active == false, "tutorial complete after the first rebirth")
+check(lastNotify(20, "tutorialDone") ~= nil, "completion celebration")
+check(lastState[20].pearls >= tPearls + 25, "final step reward (25 pearls + rebirth pearls)")
+
+-- skipping
+leave(T)
+local U = makePlayer(21, "Uma")
+join(U)
+check(lastState[21].tutorial.active == true, "new player has the tutorial")
+act(U, "SkipTutorial")
+check(lastState[21].tutorial.active == false, "tutorial can be skipped")
+haulT(0)
+leave(U)
+join(T) -- Tia comes back: gift is not given twice
+check(lastState[20].coins ~= nil and (notifications[20] or {})[1] ~= nil, "Tia rejoined")
 
 -- ======================= CLIENT: run the real UI against the real server =======================
 clientPlayer = A

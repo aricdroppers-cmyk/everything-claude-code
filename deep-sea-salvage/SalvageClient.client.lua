@@ -2884,15 +2884,22 @@ end
 local boostHolder = new("Frame", {
 	AnchorPoint = Vector2.new(1, 0),
 	Position = UDim2.new(1, -12, 0, 60),
-	Size = UDim2.new(0, 170, 0, 120),
+	Size = UDim2.new(0, 280, 0, 0),
+	AutomaticSize = Enum.AutomaticSize.Y,
 	BackgroundTransparency = 1,
 	Parent = gui,
 })
-new("UIListLayout", { Padding = UDim.new(0, 4), HorizontalAlignment = Enum.HorizontalAlignment.Right, Parent = boostHolder })
+new("UIListLayout", {
+	Padding = UDim.new(0, 4),
+	HorizontalAlignment = Enum.HorizontalAlignment.Right,
+	SortOrder = Enum.SortOrder.LayoutOrder,
+	Parent = boostHolder,
+})
 local boostLabels = {}
 for _, which in ipairs({ "coins", "luck", "xp" }) do
 	local pill = new("Frame", {
-		Size = UDim2.new(1, 0, 0, 28),
+		Size = UDim2.new(0, 170, 0, 28),
+		LayoutOrder = 1,
 		BackgroundColor3 = THEME.bg,
 		BackgroundTransparency = 0.15,
 		Visible = false,
@@ -2909,6 +2916,105 @@ for _, which in ipairs({ "coins", "luck", "xp" }) do
 		MaxTextSize = 15,
 		Parent = pill,
 	})
+end
+
+
+---------------------------------------------------------------------------
+-- GETTING STARTED (tutorial tracker, top right above the boost timers)
+---------------------------------------------------------------------------
+local tutorialCard = new("Frame", {
+	Size = UDim2.new(0, 280, 0, 118),
+	BackgroundColor3 = THEME.bg,
+	BackgroundTransparency = 0.08,
+	LayoutOrder = -1,
+	Visible = false,
+	Parent = boostHolder,
+})
+corner(tutorialCard, 12)
+stroke(tutorialCard, THEME.gold, 2.5, 0)
+local tutorialTitle = text({
+	Position = UDim2.new(0, 12, 0, 8),
+	Size = UDim2.new(1, -70, 0, 16),
+	Font = Enum.Font.GothamBlack,
+	TextColor3 = THEME.gold,
+	MaxTextSize = 14,
+	Parent = tutorialCard,
+})
+local tutorialStep = text({
+	Position = UDim2.new(0, 12, 0, 26),
+	Size = UDim2.new(1, -24, 0, 20),
+	Font = Enum.Font.GothamBlack,
+	MaxTextSize = 17,
+	Parent = tutorialCard,
+})
+local tutorialHint = text({
+	Position = UDim2.new(0, 12, 0, 48),
+	Size = UDim2.new(1, -24, 0, 30),
+	Font = Enum.Font.Gotham,
+	TextColor3 = THEME.muted,
+	TextWrapped = true,
+	TextYAlignment = Enum.TextYAlignment.Top,
+	MaxTextSize = 13,
+	Parent = tutorialCard,
+})
+local tutorialBarBack = new("Frame", {
+	Position = UDim2.new(0, 12, 0, 84),
+	Size = UDim2.new(1, -24, 0, 8),
+	BackgroundColor3 = Color3.fromRGB(30, 50, 70),
+	Parent = tutorialCard,
+})
+corner(tutorialBarBack, 4)
+local tutorialBar = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = THEME.gold, Parent = tutorialBarBack })
+corner(tutorialBar, 4)
+local tutorialReward = text({
+	Position = UDim2.new(0, 12, 0, 96),
+	Size = UDim2.new(1, -24, 0, 16),
+	Font = Enum.Font.GothamBold,
+	TextColor3 = THEME.good,
+	MaxTextSize = 12,
+	Parent = tutorialCard,
+})
+local skipButton = button({
+	AnchorPoint = Vector2.new(1, 0),
+	Position = UDim2.new(1, -8, 0, 6),
+	Size = UDim2.new(0, 56, 0, 20),
+	Text = "skip",
+	BackgroundColor3 = Color3.fromRGB(45, 50, 65),
+	TextColor3 = THEME.muted,
+	Font = Enum.Font.GothamBold,
+	MaxTextSize = 11,
+	Parent = tutorialCard,
+})
+local skipArmed = false
+skipButton.MouseButton1Click:Connect(function()
+	if skipArmed then
+		Action:FireServer("SkipTutorial")
+	else
+		skipArmed = true
+		skipButton.Text = "sure?"
+		task.delay(3, function()
+			skipArmed = false
+			skipButton.Text = "skip"
+		end)
+	end
+end)
+
+local function renderTutorial()
+	local t = state and state.tutorial
+	if not t or not t.active then
+		tutorialCard.Visible = false
+		return
+	end
+	tutorialCard.Visible = true
+	tutorialTitle.Text = string.format("GETTING STARTED  %d/%d", t.step, t.total)
+	tutorialStep.Text = t.text
+	tutorialHint.Text = t.hint
+	tutorialBar.Size = UDim2.fromScale(math.clamp(t.current / math.max(t.goal, 1), 0, 1), 1)
+	local rewards = {}
+	for _, r in ipairs(t.reward) do
+		table.insert(rewards, (Config.DescribeReward(r, 0)))
+	end
+	tutorialReward.Text = string.format("%d/%d   Reward: %s", t.current, t.goal, table.concat(rewards, " + "))
 end
 
 local function updateBoostPills()
@@ -3102,7 +3208,7 @@ local leftMenu, leftButtons = makeMenu({
 	{ label = "LOGBOOK", color = Color3.fromRGB(165, 120, 255), action = function() openPanel("Logbook") end },
 	{ label = "QUESTS", color = Color3.fromRGB(120, 200, 255), action = function() openPanel("Quests") end },
 }, false)
-local rightMenu = makeMenu({
+local rightMenu, rightButtons = makeMenu({
 	{ label = "SEASON", color = Color3.fromRGB(255, 90, 220), action = function() openPanel("Season") end },
 	{ label = "STORE", color = THEME.gold, action = function() openPanel("Store") end },
 	{ label = "REBIRTH", color = Color3.fromRGB(255, 160, 60), action = function() openPanel("Rebirth") end },
@@ -3162,6 +3268,25 @@ local guideBeam = new("Beam", {
 	Enabled = false,
 })
 local guideTipShown = false
+local menuStrokes = {}
+
+-- the menu button the tutorial wants you to press gently pulses
+local function pulseMenus()
+	local wanted = state and state.tutorial and state.tutorial.active and state.tutorial.menu
+	for label, btn in pairs(leftButtons) do
+		menuStrokes[label] = menuStrokes[label] or btn:FindFirstChildOfClass("UIStroke")
+	end
+	for label, btn in pairs(rightButtons) do
+		menuStrokes[label] = menuStrokes[label] or btn:FindFirstChildOfClass("UIStroke")
+	end
+	local pulse = 2 + (math.sin(os.clock() * 6) + 1) * 1.5
+	for label, s in pairs(menuStrokes) do
+		if s then
+			s.Thickness = (label == wanted) and pulse or 2
+			s.Transparency = (label == wanted) and 0 or 0.15
+		end
+	end
+end
 local function updateGuide()
 	local character = player.Character
 	local hrp = character and character:FindFirstChild("HumanoidRootPart")
@@ -3173,6 +3298,15 @@ local function updateGuide()
 				if distance < bestDistance then
 					best, bestDistance = crate, distance
 				end
+			end
+		end
+	end
+	-- tutorial step "visit a hunting ground": point at the Sunlit Shallows portal
+	local tutorial = state and state.tutorial
+	if not best and hrp and tutorial and tutorial.active and tutorial.target == "portal" and not currentArena then
+		for _, portal in ipairs(CollectionService:GetTagged("SalvagePortal")) do
+			if portal:GetAttribute("ArenaIndex") == 1 then
+				best, bestDistance = portal, (portal.Position - hrp.Position).Magnitude
 			end
 		end
 	end
@@ -3213,6 +3347,7 @@ StateUpdate.OnClientEvent:Connect(function(newState)
 		end
 	end)
 	pearlsLabel.Text = Config.FormatNumber(state.pearls)
+	renderTutorial()
 	levelLabel.Text = "Lv " .. state.level
 	TweenService:Create(xpFill, TweenInfo.new(0.3), { Size = UDim2.fromScale(math.clamp(state.xp / state.xpNeeded, 0, 1), 1) }):Play()
 	renderPanel()
@@ -3234,6 +3369,9 @@ local function playSound(id, volume, pitch)
 end
 local SOUND_FOR = {
 	dailyClaimed = { 0.6, 1.2 },
+	starterGift = { 0.7, 1.0 },
+	tutorialStep = { 0.5, 1.35 },
+	tutorialDone = { 0.7, 0.9 },
 	levelup = { 0.6, 1.3 },
 	ship = { 0.7, 0.8 },
 	hatch = { 0.6, 1.1 },
@@ -3297,6 +3435,23 @@ Notify.OnClientEvent:Connect(function(msg)
 		toast(msg.text, THEME.accent, 3)
 	elseif kind == "purchase" then
 		toast(msg.text, THEME.good, 5)
+	elseif kind == "starterGift" then
+		showSplash("WELCOME GIFT!", THEME.gold)
+		local items = {}
+		for _, r in ipairs(msg.rewards) do
+			table.insert(items, (Config.DescribeReward(r, 0)))
+		end
+		toast("Starter gift: " .. table.concat(items, ", "), THEME.gold, 9)
+	elseif kind == "tutorialStep" then
+		local items = {}
+		for _, r in ipairs(msg.reward) do
+			table.insert(items, (Config.DescribeReward(r, 0)))
+		end
+		toast(string.format('<font color="#%s">STEP %d/%d DONE:</font> %s  (+%s)', THEME.good:ToHex(), msg.step, msg.total, msg.text,
+			table.concat(items, ", ")), THEME.good, 5)
+	elseif kind == "tutorialDone" then
+		showSplash("YOU'RE A REAL SALVAGER!", THEME.gold)
+		toast("Getting Started complete! Next: quests, the season pass and deeper hunting grounds.", THEME.gold, 8)
 	elseif kind == "dailyAvailable" then
 		task.delay(1.5, openDaily)
 	elseif kind == "dailyClaimed" then
@@ -3391,8 +3546,11 @@ Notify.OnClientEvent:Connect(function(msg)
 		toast(msg.text, msg.color or THEME.accent, 4)
 		renderPanel()
 	elseif kind == "welcome" then
-		toast("Welcome to Deep Sea Salvage! Your sub is already diving.", THEME.accent, 7)
-		toast("When it surfaces, hold E (or tap the button on a phone) on the crate at your bay to haul it up.", THEME.accent, 8)
+		if msg.newPlayer then
+			toast("Welcome to Deep Sea Salvage! Follow GETTING STARTED (top right).", THEME.accent, 8)
+		else
+			toast("Welcome back! Your subs are already diving.", THEME.accent, 6)
+		end
 		if not msg.canSave then
 			toast("Saving is OFF on this server (see README: enable API Services).", THEME.danger, 8)
 		end
@@ -3410,6 +3568,7 @@ while true do
 	updateBoostPills()
 	updateArenaLook()
 	updateGuide()
+	pulseMenus()
 	dailyDot.Visible = state ~= nil and state.login ~= nil and state.login.canClaim
 	if state and state.login and secondsLeft(state.login.nextIn) < -2 then
 		state.login.nextIn = 1e9

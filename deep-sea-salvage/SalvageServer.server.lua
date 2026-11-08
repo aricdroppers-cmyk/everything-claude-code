@@ -874,7 +874,7 @@ local function defaultData()
 		parts = {},
 		ships = {},
 		pity = 0,
-		stats = { hauls = 0, fragments = 0, breaches = 0, hatched = 0, trades = 0, kills = 0, levelsGained = 0 },
+		stats = { hauls = 0, fragments = 0, breaches = 0, hatched = 0, trades = 0, kills = 0, levelsGained = 0, arenaVisits = 0 },
 		level = 1,
 		bestLevel = 1,
 		xp = 0,
@@ -895,10 +895,14 @@ local function defaultData()
 		charms = {}, -- [charmId] = how many you own
 		equippedCharms = {}, -- charm ids
 		login = { claimedDay = -1, streak = 0, best = 0 }, -- daily login streak
+		starterGiven = false,
+		tutorial = { step = 1, skipped = false },
 	}
 end
 
 local function reconcile(data)
+	-- players who played before the tutorial existed skip it (and the starter gift)
+	local veteran = data.tutorial == nil and type(data.stats) == "table" and (data.stats.hauls or 0) > 0
 	local fresh = defaultData()
 	for key, value in pairs(fresh) do
 		if data[key] == nil then
@@ -976,6 +980,11 @@ local function reconcile(data)
 	data.weapons = weapons
 	if not table.find(weapons, data.weapon) then
 		data.weapon = Config.StartingWeapon
+	end
+
+	if veteran then
+		data.tutorial.step = #Config.Tutorial + 1
+		data.starterGiven = true
 	end
 
 	-- a new season id (an update) resets season progress and the season passes
@@ -1196,11 +1205,37 @@ local function loginStatus(data)
 	return { canClaim = canClaim, streak = streak, best = login.best, nextIn = 86400 - os.time() % 86400 }
 end
 
+local checkTutorial -- defined further down (needs giveReward)
+
+local function tutorialStatus(data)
+	local t = data.tutorial
+	local step = Config.Tutorial[t.step]
+	if t.skipped or not step then
+		return { active = false, step = t.step, total = #Config.Tutorial }
+	end
+	local current, goal = step.progress(data)
+	return {
+		active = true,
+		step = t.step,
+		total = #Config.Tutorial,
+		text = step.text,
+		hint = step.hint,
+		current = math.min(current, goal),
+		goal = goal,
+		menu = step.menu,
+		target = step.target,
+		reward = step.reward,
+	}
+end
+
 local function pushState(session)
 	if not session.active then
 		return
 	end
 	local data = session.data
+	if checkTutorial then
+		checkTutorial(session)
+	end
 	local subs = {}
 	for i, sub in ipairs(data.subs) do
 		local entry = session.fleet[i]
@@ -1254,6 +1289,7 @@ local function pushState(session)
 		boostsLeft = boostsLeft,
 		passes = session.passes or {},
 		login = loginStatus(data),
+		tutorial = tutorialStatus(data),
 		prices = LivePrices,
 		serverTime = os.time(),
 		studio = RunService:IsStudio(),
@@ -2086,6 +2122,47 @@ local function giveReward(session, r)
 	end
 end
 
+checkTutorial = function(session)
+	local data = session.data
+	local t = data.tutorial
+	if t.skipped then
+		return
+	end
+	for _ = 1, #Config.Tutorial do
+		local step = Config.Tutorial[t.step]
+		if not step then
+			break
+		end
+		local current, goal = step.progress(data)
+		if current < goal then
+			break
+		end
+		for _, reward in ipairs(step.reward) do
+			giveReward(session, table.clone(reward))
+		end
+		notify(session.player, { kind = "tutorialStep", step = t.step, total = #Config.Tutorial, text = step.text, reward = step.reward })
+		t.step += 1
+		if t.step == Config.TutorialDailyAfterStep + 1 and loginStatus(data).canClaim then
+			notify(session.player, { kind = "dailyAvailable" })
+		end
+		if not Config.Tutorial[t.step] then
+			notify(session.player, { kind = "tutorialDone" })
+		end
+	end
+end
+
+local function giveStarterGift(session)
+	local data = session.data
+	if data.starterGiven then
+		return
+	end
+	data.starterGiven = true
+	for _, reward in ipairs(Config.StarterGift) do
+		giveReward(session, table.clone(reward))
+	end
+	notify(session.player, { kind = "starterGift", rewards = Config.StarterGift })
+end
+
 local function claimDaily(session)
 	local data = session.data
 	local status = loginStatus(data)
@@ -2862,6 +2939,8 @@ local function buildPortal(arena, angle)
 	})
 	addBillboard(surface, zone.name .. "  |  Lv " .. def.level .. "+", color, 6.5, 120, 260)
 	local prompt = Instance.new("ProximityPrompt")
+	surface:SetAttribute("ArenaIndex", arena.index)
+	CollectionService:AddTag(surface, "SalvagePortal")
 	prompt.ActionText = "Dive In"
 	prompt.ObjectText = zone.name .. " Hunting Grounds"
 	prompt.HoldDuration = 0.3
@@ -3423,6 +3502,13 @@ RunService.Heartbeat:Connect(function(dt)
 				elseif arena then
 					table.insert(arena.players, { player = player, hrp = hrp, humanoid = humanoid })
 				end
+				if arena ~= session.currentArena then
+					session.currentArena = arena
+					if arena then
+						session.data.stats.arenaVisits += 1
+						pushState(session)
+					end
+				end
 			end
 		end
 		local clock = os.clock()
@@ -3646,8 +3732,11 @@ local function onPlayerAdded(player)
 	updatePublicInfo(session)
 	giveWeaponTool(session)
 	pushState(session)
-	notify(player, { kind = "welcome", canSave = canSave })
-	if loginStatus(data).canClaim then
+	notify(player, { kind = "welcome", canSave = canSave, newPlayer = not data.starterGiven })
+	giveStarterGift(session)
+	pushState(session)
+	local tutorialBusy = not data.tutorial.skipped and data.tutorial.step <= Config.TutorialDailyAfterStep
+	if loginStatus(data).canClaim and not tutorialBusy then
 		notify(player, { kind = "dailyAvailable" })
 	end
 end
@@ -4024,6 +4113,9 @@ Action.OnServerEvent:Connect(function(player, action, arg1, arg2)
 		doRebirth(session, false)
 	elseif action == "ClaimDaily" then
 		claimDaily(session)
+	elseif action == "SkipTutorial" then
+		data.tutorial.skipped = true
+		pushState(session)
 	elseif action == "EquipCharm" and typeof(arg1) == "string" then
 		toggleCharm(session, arg1)
 	elseif action == "DissolveCharm" and typeof(arg1) == "string" then

@@ -38,6 +38,30 @@ has changed, and `SalvageModels` is new.
 - Duplicate fragments are spares. They're auto-sold by default; turn that off
   in the Logbook to keep them for trading.
 
+### First time playing: starter gift + Getting Started
+- **Starter gift** (once, on your first join): 500 coins, 10 Pearls, a Tide
+  Pool Egg and 15 minutes of 2x Coins. That's enough to buy a second sub and
+  hatch your first pet.
+- **Getting Started** (top right) walks new players through 9 short steps:
+  1. Haul your first crate
+  2. Haul 5 crates
+  3. Buy a second sub
+  4. Restore a ship
+  5. Hatch an egg
+  6. Visit a hunting ground
+  7. Defeat 3 creatures
+  8. Reach Level 5
+  9. Rebirth
+- Each step has a small reward, and the final one gives 25 Pearls and a season
+  Charm.
+- A gold line points to where you need to go (your crate, or the portal), and
+  the menu button you need gently pulses.
+- Players can **skip** it.
+- To keep the first minute calm, the daily rewards popup waits until a new
+  player reaches step 3.
+- Players who played before this update don't get the tutorial or the gift.
+- Steps and rewards are in `Config.Tutorial` and `Config.StarterGift`.
+
 ### Levels, eggs, pets, trading
 - Hauls and kills give XP. Your level shows over your head and in the player list.
 - Eggs drop from hauls (5%) and creatures (1.5%). Hatch them for coins in **PETS**.
@@ -267,13 +291,14 @@ None of these need uploaded animations:
 ## Testing
 `tests/run.sh` runs the real server **and** the real client inside a fake
 Roblox, with real 3D math. You need the free `luau` command line tool from
-https://github.com/luau-lang/luau/releases. It runs about 190 checks:
+https://github.com/luau-lang/luau/releases. It runs about 215 checks:
 - Gameplay: dives, levels, hatching, trading, the season pass (retroactive
   purchases, prestige scaling), quests, rebirth, all 3 Robux rebirth options,
   boosts and receipts (never granted twice), charms and Tide Bottles, portals,
   enemy AI, weapons, the Leviathan, all 3 random events, the daily streak
-  (including missing a day), autosave, the global leaderboards, live prices
-  and the combat animations.
+  (including missing a day), autosave, the global leaderboards, live prices,
+  the combat animations, and a brand-new player playing through the whole
+  tutorial from the starter gift to their first rebirth.
 - Exploits: remote spam, using prompts from far away, teleporting into
   hunting grounds you're too low for, trading items you don't have, and the
   anti-cheat (speed hack, fly hack, kick after repeated strikes, no false
