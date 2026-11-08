@@ -4816,11 +4816,18 @@ end
 remotes:SetAttribute("Weather", "")
 remotes:SetAttribute("WeatherEnd", 0)
 task.spawn(function()
+	local waitTime = Config.Weather.interval
 	while true do
-		task.wait(Config.Weather.interval)
+		remotes:SetAttribute("NextWeatherRoll", now() + waitTime)
+		task.wait(waitTime)
 		local weather = pickWeather()
 		if #Players:GetPlayers() > 0 and weather then
-			runWeather(weather)
+			runWeather(weather) -- takes Config.Weather.duration
+			-- next roll 10 minutes after this weather started
+			waitTime = math.max(1, Config.Weather.interval - Config.Weather.duration)
+		else
+			-- clear skies: try again sooner
+			waitTime = Config.Weather.clearRetry
 		end
 	end
 end)

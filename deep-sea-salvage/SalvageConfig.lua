@@ -629,8 +629,9 @@ Config.Mutations = {
 -- Abilities only fire in the hunting grounds, from each equipped mutated pet.
 
 Config.Weather = {
-	interval = 600, -- every 10 minutes the weather MIGHT change...
-	duration = 120, -- ...for 2 minutes
+	interval = 600, -- after a weather, the next roll is 10 minutes after it started
+	clearRetry = 300, -- after clear skies, try again in 5 minutes
+	duration = 120, -- weather lasts 2 minutes
 	petCheckEvery = 20, -- seconds between pet mutation rolls during weather
 	-- chance = how likely each weather is on a roll. Whatever is left over is
 	-- clear skies (here 24%). petChance = chance per equipped pet per check.

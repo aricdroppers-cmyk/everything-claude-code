@@ -1093,6 +1093,29 @@ for i, w in ipairs(Config.Weather.types) do
 	w.chance, w.crateChance, w.petChance = savedChances[i][1], savedChances[i][2], savedChances[i][3]
 end
 
+-- weather timing: clear skies -> next roll in 5 min; weather -> next roll 10 min after it started
+local function nextRollAfterARoll()
+	local before = remotesFolder:GetAttribute("NextWeatherRoll")
+	for _ = 1, 400 do
+		tick(5)
+		local after = remotesFolder:GetAttribute("NextWeatherRoll")
+		if after ~= before then
+			return before, after
+		end
+	end
+end
+for _, w in ipairs(Config.Weather.types) do
+	w.chance = 0 -- every roll is clear skies
+end
+local rollAt, nextAt = nextRollAfterARoll()
+check(rollAt and nextAt and math.abs((nextAt - rollAt) - 300) < 6, "clear skies -> next roll 5 minutes later (" .. tostring(nextAt and rollAt and nextAt - rollAt) .. "s)")
+Config.Weather.types[1].chance = 1 -- next roll is a Thunderstorm
+rollAt, nextAt = nextRollAfterARoll()
+check(rollAt and nextAt and math.abs((nextAt - rollAt) - 600) < 11, "weather -> next roll 10 minutes after it started (" .. tostring(nextAt and rollAt and nextAt - rollAt) .. "s)")
+for i, w in ipairs(Config.Weather.types) do
+	w.chance = savedChances[i][1]
+end
+
 -- pet abilities: a player whose pets are already Frozen, Golden and Rainbow
 leave(W)
 presetData["player_31"] = {

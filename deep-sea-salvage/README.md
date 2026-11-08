@@ -113,8 +113,11 @@ gets darker the deeper you go.
   uploaded with each save.
 
 ### Weather and mutations
-- **Every 10 minutes** the weather might change for 2 minutes. Rarer weather
-  is less likely, and sometimes the skies just stay clear:
+- The game rolls for weather. Each weather lasts 2 minutes, and rarer
+  weather is less likely:
+  - **Clear skies:** the next roll comes **5 minutes** later.
+  - **Weather:** the next roll comes **10 minutes** after that weather
+    started.
 
   | Weather | Chance per roll | Mutation | Haul value | Pet ability |
   |---|---|---|---|---|
