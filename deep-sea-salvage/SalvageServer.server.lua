@@ -3347,14 +3347,14 @@ local function killEnemy(enemy)
 		if session and session.loaded then
 			local data = session.data
 			local coins = def.coins * coinMultiplier(session)
+			local coinBonus = 0 -- the best kill-coin bonus from an equipped mutated pet
 			for _, pet in ipairs(equippedPets(data)) do
-				local ability = pet.mutation and Config.Mutations[pet.mutation].ability
-				if ability and ability.coinBonus then
-					coins *= 1 + ability.coinBonus
-					break
+				local mutationDef = pet.mutation and Config.Mutations[pet.mutation]
+				if mutationDef and mutationDef.ability.coinBonus then
+					coinBonus = math.max(coinBonus, mutationDef.ability.coinBonus)
 				end
 			end
-			coins = math.floor(coins)
+			coins = math.floor(coins * (1 + coinBonus))
 			data.coins += coins
 			data.stats.kills += 1
 			if def.pearls then
@@ -3702,6 +3702,28 @@ local function enemiesNear(arena, position, range)
 	return list
 end
 
+local function abilityColor(mutation, i)
+	return mutation.rainbow and RAINBOW[(i % #RAINBOW) + 1] or mutation.color
+end
+
+-- slow / burn / knockback on a creature that was hit
+local function applyExtras(session, info, ability, enemy, weaponDamage)
+	if ability.slow then
+		enemy.slowUntil = os.clock() + (ability.slowTime or 3)
+		enemy.slowMult = ability.slow
+	end
+	if ability.burn then
+		enemy.burns = enemy.burns or {}
+		table.insert(enemy.burns, { session = session, dps = weaponDamage * ability.burn, untilTime = os.clock() + (ability.burnTime or 4) })
+	end
+	if ability.knockback then
+		local away = Vector3.new(enemy.pos.X - info.hrp.Position.X, 0, enemy.pos.Z - info.hrp.Position.Z)
+		if away.Magnitude > 0.1 then
+			enemy.pos += away.Unit * ability.knockback
+		end
+	end
+end
+
 local function useAbility(session, info, mutationId, origin)
 	local mutation = Config.Mutations[mutationId]
 	local ability = mutation.ability
@@ -3709,65 +3731,123 @@ local function useAbility(session, info, mutationId, origin)
 	if not arena then
 		return false
 	end
-	local targets = enemiesNear(arena, origin, ability.range)
+	local center = (ability.kind == "nova" or ability.kind == "percent") and info.hrp.Position or origin
+	local targets = enemiesNear(arena, center, ability.range)
 	if #targets == 0 then
 		return false
 	end
-	local weapon = Config.GetWeapon(session.data.weapon)
-	local damage = weapon.damage * getMultipliers(session).damage * ability.damage
+	local weaponDamage = Config.GetWeapon(session.data.weapon).damage * getMultipliers(session).damage
+	local damage = weaponDamage * (ability.damage or 0)
+	local dealt = 0
+	local function hit(enemy, amount)
+		if enemy.alive then
+			applyExtras(session, info, ability, enemy, weaponDamage)
+			dealt += amount
+			damageEnemy(enemy, session, amount)
+		end
+	end
 
-	if mutationId == "Electric" then
-		-- chain: first target, then jump to the next closest ones
-		local from = origin
-		local hit = {}
+	if ability.kind == "chain" then
+		local from, hitList = origin, {}
 		local current = targets[1].enemy
-		for jump = 0, ability.chains do
+		for jump = 0, ability.chains or 0 do
 			if not current then
 				break
 			end
-			hit[current] = true
-			bolt(from, current.root.Position, mutation.color, 0.35, 1.6)
+			hitList[current] = true
+			bolt(from, current.root.Position, abilityColor(mutation, jump), 0.35, 1.6)
 			local nextFrom = current.root.Position
-			damageEnemy(current, session, damage * (jump == 0 and 1 or 0.7))
+			hit(current, damage * (jump == 0 and 1 or 0.7))
 			current = nil
 			for _, t in ipairs(enemiesNear(arena, nextFrom, 22)) do
-				if not hit[t.enemy] then
+				if not hitList[t.enemy] then
 					current = t.enemy
 					break
 				end
 			end
 			from = nextFrom
 		end
-	elseif mutationId == "Frozen" then
+	elseif ability.kind == "nova" then
 		burst(info.hrp.Position, mutation.color, ability.range * 0.5)
-		for _, t in ipairs(targets) do
-			t.enemy.slowUntil = os.clock() + ability.slowTime
-			t.enemy.slowMult = ability.slow
-			burst(t.enemy.root.Position, Color3.fromRGB(220, 245, 255), t.enemy.radius * 0.8)
-			damageEnemy(t.enemy, session, damage)
+		for i, t in ipairs(targets) do
+			burst(t.enemy.root.Position, abilityColor(mutation, i), t.enemy.radius * 0.8)
+			hit(t.enemy, damage)
 		end
-	elseif mutationId == "Golden" then
+	elseif ability.kind == "strike" then
 		local target = targets[1].enemy
-		bolt(origin, target.root.Position, mutation.color, 0.6, 0.4)
-		burst(target.root.Position, mutation.color, target.radius)
-		damageEnemy(target, session, damage)
-	elseif mutationId == "Rainbow" then
-		for i = 1, math.min(ability.targets, #targets) do
-			local target = targets[i].enemy
-			bolt(origin, target.root.Position, RAINBOW[(i * 2) % #RAINBOW + 1], 0.5, 0.3)
-			damageEnemy(target, session, damage)
+		bolt(origin, target.root.Position, mutation.color, 0.7, 0.4)
+		burst(target.root.Position, mutation.color, target.radius + (ability.splash and 3 or 0))
+		local targetPos = target.root.Position
+		hit(target, damage)
+		if ability.splash then
+			for _, t in ipairs(enemiesNear(arena, targetPos, ability.splash)) do
+				if t.enemy ~= target then
+					hit(t.enemy, damage * 0.5)
+				end
+			end
 		end
-		local humanoid = info.humanoid
-		humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + humanoid.MaxHealth * ability.heal)
+	elseif ability.kind == "beam" then
+		for i = 1, math.min(ability.targets or 1, #targets) do
+			local target = targets[i].enemy
+			bolt(origin, target.root.Position, abilityColor(mutation, i), 0.5, 0.3)
+			hit(target, damage)
+		end
+	elseif ability.kind == "barrage" then
+		for i = 1, ability.shots or 3 do
+			local target = targets[rng:NextInteger(1, #targets)].enemy
+			if target.alive then
+				local p = target.root.Position
+				bolt(p + Vector3.new(rng:NextNumber(-6, 6), 30, rng:NextNumber(-6, 6)), p, abilityColor(mutation, i), 0.45, 0.2)
+				hit(target, damage)
+			end
+		end
+	elseif ability.kind == "percent" then
+		burst(info.hrp.Position, mutation.color, ability.range * 0.4)
+		for _, t in ipairs(targets) do
+			local amount = t.enemy.maxHp * ability.percent * (t.enemy.def.boss and 0.1 or 1)
+			burst(t.enemy.root.Position, mutation.color, t.enemy.radius)
+			hit(t.enemy, amount)
+		end
+	end
+
+	local humanoid = info.humanoid
+	local heal = 0
+	if ability.heal then
+		heal += humanoid.MaxHealth * ability.heal
+	end
+	if ability.lifesteal then
+		heal += dealt * ability.lifesteal
+	end
+	if heal > 0 and humanoid.Health > 0 then
+		humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + heal)
 		burst(info.hrp.Position, Color3.fromRGB(110, 255, 140), 3)
 	end
 	return true
+end
+
+-- burning creatures take damage every second
+local function tickBurns(clock)
+	for _, enemy in ipairs(table.clone(Enemies)) do
+		if enemy.alive and enemy.burns and #enemy.burns > 0 and clock >= (enemy.nextBurn or 0) then
+			enemy.nextBurn = clock + 1
+			for i = #enemy.burns, 1, -1 do
+				local b = enemy.burns[i]
+				if clock > b.untilTime or not b.session.active then
+					table.remove(enemy.burns, i)
+				elseif enemy.alive then
+					burst(enemy.root.Position + Vector3.new(0, 1, 0), Color3.fromRGB(255, 120, 40), 1.2)
+					damageEnemy(enemy, b.session, b.dps)
+				end
+			end
+		end
+	end
 end
 
 task.spawn(function()
 	while true do
 		task.wait(0.25)
 		local clock = os.clock()
+		tickBurns(clock)
 		for _, arena in ipairs(Arenas) do
 			for _, info in ipairs(arena.players) do
 				local session = Sessions[info.player]
@@ -4783,7 +4863,8 @@ local function mutatePets(weather)
 					changed = true
 					local def = Config.GetPet(pet.id)
 					notify(session.player, { kind = "petMutated", pet = pet.id, mutation = weather.mutation, ability = mutation.ability.name })
-					announce(session.player.DisplayName .. "'s " .. def.name .. " became " .. mutation.name:upper() .. "!", mutation.color)
+					announce(session.player.DisplayName .. "'s " .. def.name .. " became " .. mutation.name:upper() .. " ("
+						.. Config.WeatherTiers[mutation.tier].name .. ")!", mutation.color)
 				end
 			end
 			if changed then
@@ -4799,7 +4880,8 @@ local function runWeather(weather)
 	local endTime = now() + Config.Weather.duration
 	remotes:SetAttribute("Weather", weather.id)
 	remotes:SetAttribute("WeatherEnd", endTime)
-	announce(weather.name .. "! " .. weather.desc, Config.Mutations[weather.mutation].color)
+	local tier = Config.WeatherTiers[weather.tier]
+	announce(tier.name .. " WEATHER: " .. weather.name .. "! " .. weather.desc, tier.id == "Common" and Config.Mutations[weather.mutation].color or tier.color)
 	local nextPetRoll = os.clock() + Config.Weather.petCheckEvery
 	while now() < endTime do
 		task.wait(1)

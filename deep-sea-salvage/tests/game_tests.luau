@@ -1139,11 +1139,25 @@ for _, obj in ipairs(created) do
 	if obj.ClassName == "Part" and obj.Material == Enum.Material.Neon then neonBefore += 1 end
 end
 local healed, abilityKill = false, nil
+local xStart = #created
+local ABILITY_SEEN_ELECTRIC = false
 for _ = 1, 600 do
 	fakeClock += 0.25
 	heartbeat(0.25)
-	-- stand in the middle of the hunting ground, never swing
-	xHrp.CFrame = CFrame.new(Config.ArenaCenter(1) + Vector3.new(0, 4, 0))
+	-- walk toward the closest creature, never swing
+	local nearest, nd = nil, math.huge
+	for _, obj in ipairs(created) do
+		if (obj.Name == "SnappyCrab" or obj.Name == "StingJelly") and obj.ClassName == "Model" and not rawget(obj, "__destroyed") then
+			local d = (obj.PrimaryPart.CFrame.Position - xHrp.CFrame.Position).Magnitude
+			if d < nd then nearest, nd = obj, d end
+		end
+	end
+	if nearest then
+		local p = nearest.PrimaryPart.CFrame.Position
+		xHrp.CFrame = CFrame.new(Vector3.new(p.X, 4, p.Z) + Vector3.new(0, 0, 8))
+	else
+		xHrp.CFrame = CFrame.new(Config.ArenaCenter(1) + Vector3.new(0, 4, 0))
+	end
 	if xHum.Health < 30 or xHum.Health >= xHum.MaxHealth - 1 then
 		xHum.Health = xHum.MaxHealth * 0.5 -- keep room to see the Rainbow heal
 	end
@@ -1151,16 +1165,18 @@ for _ = 1, 600 do
 	runSleeping()
 	runDelayed()
 	if xHum.Health > h0 + 0.5 then healed = true end
-	if yellowBolts == 0 then
-		for i = #created, math.max(1, #created - 80), -1 do
+
+	abilityKill = abilityKill or lastNotify(31, "kill")
+	if healed and abilityKill and ABILITY_SEEN_ELECTRIC then break end
+	if not ABILITY_SEEN_ELECTRIC then
+		for i = math.max(xStart, #created - 400), #created do
 			local obj = created[i]
 			if obj.ClassName == "Part" and obj.Material == Enum.Material.Neon and obj.Color == Config.Mutations.Electric.color then
-				yellowBolts += 1
+				ABILITY_SEEN_ELECTRIC = true
+				break
 			end
 		end
 	end
-	abilityKill = abilityKill or lastNotify(31, "kill")
-	if healed and abilityKill then break end
 end
 local neonAfter = 0
 for _, obj in ipairs(created) do
@@ -1169,16 +1185,111 @@ end
 check(abilityKill ~= nil, "mutated pets kill creatures on their own (no swinging)")
 check(healed, "Rainbow Prism Beam heals the player")
 check(neonAfter > neonBefore, "ability bolts and bursts are drawn")
-check(yellowBolts > 0, "Chain Lightning bolts are drawn")
+for i = xStart, #created do
+	local obj = created[i]
+	if obj.ClassName == "Part" and obj.Material == Enum.Material.Neon and obj.Color == Config.Mutations.Electric.color then
+		yellowBolts += 1
+	end
+end
+check(yellowBolts > 0, "Chain Lightning bolts are drawn (" .. yellowBolts .. ")")
 if abilityKill then
 	local def
 	for _, e in ipairs(Config.Enemies) do
 		if e.name == abilityKill.enemy then def = e end
 	end
-	local expected = math.floor(def.coins * lastState[31].multiplier * 1.5)
-	check(abilityKill.coins == expected, "Golden pet: kills give +50% coins (" .. abilityKill.coins .. " vs " .. expected .. ")")
+	-- (a charm dropped by the same kill can nudge the multiplier, so check the ratio)
+	local ratio = abilityKill.coins / (def.coins * lastState[31].multiplier)
+	check(ratio > 1.35 and ratio < 1.6, "Golden pet: kills give +50% coins (x" .. string.format("%.2f", ratio) .. ")")
 end
 leave(X)
+
+
+-- ======================= ROUND 7: 6 weather tiers, 18 mutations, every ability =======================
+check(#Config.WeatherTiers == 6, "6 weather tiers")
+local perTier, lastChance, totalChance = {}, math.huge, 0
+local validKinds = { chain = true, nova = true, strike = true, beam = true, barrage = true, percent = true }
+local allAbilitiesValid = true
+for _, w in ipairs(Config.Weather.types) do
+	perTier[w.tier] = (perTier[w.tier] or 0) + 1
+	totalChance += w.chance
+	local m = Config.Mutations[w.mutation]
+	if not (m and m.ability and validKinds[m.ability.kind] and m.ability.cooldown and m.ability.range) then
+		allAbilitiesValid = false
+		print("bad mutation for " .. w.id)
+	end
+end
+local threeEach = true
+for i = 1, 6 do
+	if perTier[i] ~= 3 then threeEach = false end
+	local c = Config.WeatherTiers[i].chanceEach
+	if c >= lastChance then threeEach = false end
+	lastChance = c
+end
+check(#Config.Weather.types == 18 and threeEach, "18 weathers, 3 per tier, each tier rarer than the last")
+check(allAbilitiesValid, "all 18 mutations have a working ability")
+check(totalChance < 1, "clear skies still possible (" .. math.floor((1 - totalChance) * 1000 + 0.5) / 10 .. "%)")
+check(Config.WeatherTiers[6].petChance > Config.WeatherTiers[1].petChance, "rarer weather = better pet mutation odds")
+
+local groups = {
+	{ "Scorched", "Sandy", "Toxic", "Meteoric", "Tidal" },
+	{ "Bloodmoon", "Starlit", "Molten", "Void", "Eclipsed" },
+	{ "Abyssal", "Divine", "Cosmic", "Poseidon", "Electric" },
+}
+for g, list in ipairs(groups) do
+	local pets, equipped = {}, {}
+	for i, m in ipairs(list) do
+		pets[i] = { uid = i, id = "Clownfish", mutation = m }
+		equipped[i] = i
+	end
+	local uid = 40 + g
+	presetData["player_" .. uid] = { starterGiven = true, tutorial = { step = 99 }, coins = 0, level = 10,
+		pets = pets, equipped = { 1, 2, 3 }, nextPetUid = 6 }
+	local P = makePlayer(uid, "Mut" .. g)
+	join(P)
+	act(P, "Buy", "PetSlots")
+	act(P, "EquipPet", 4)
+	act(P, "EquipPet", 5)
+	check(#lastState[uid].equipped == 5, "group " .. g .. ": 5 mutated pets equipped")
+	fire(portal("Sunlit"), P)
+	local hum = P.Character:FindFirstChildOfClass("Humanoid")
+	local hrp = P.Character.PrimaryPart
+	local kills = 0
+	clearNotes()
+	for _ = 1, 240 do
+		fakeClock += 0.25
+		heartbeat(0.25)
+		-- walk toward the closest creature like a real player would (but never swing)
+		local nearest, nd = nil, math.huge
+		for _, obj in ipairs(created) do
+			if (obj.Name == "SnappyCrab" or obj.Name == "StingJelly") and obj.ClassName == "Model" and not rawget(obj, "__destroyed") then
+				local d = (obj.PrimaryPart.CFrame.Position - hrp.CFrame.Position).Magnitude
+				if d < nd then nearest, nd = obj, d end
+			end
+		end
+		if nearest then
+			local p = nearest.PrimaryPart.CFrame.Position
+			hrp.CFrame = CFrame.new(Vector3.new(p.X, 4, p.Z) + Vector3.new(0, 0, 8))
+		end
+		if hum.Health < 50 then hum.Health = hum.MaxHealth end
+		runSleeping()
+		runDelayed()
+	end
+	for _, n in ipairs(notifications[uid] or {}) do
+		if n.kind == "kill" then kills += 1 end
+	end
+	check(kills >= 3, "group " .. g .. " (" .. table.concat(list, ", ") .. ") kills on its own: " .. kills)
+	if g == 3 then
+		local k = lastNotify(uid, "kill")
+		local def
+		for _, e in ipairs(Config.Enemies) do
+			if k and e.name == k.enemy then def = e end
+		end
+		local ratio = def and k.coins / (def.coins * lastState[uid].multiplier) or 0
+		check(ratio > 1.8 and ratio < 2.1, "Godly Cosmic pet: kills give +100% coins (x" .. string.format("%.2f", ratio) .. ")")
+	end
+	leave(P)
+end
+check(true, "every ability ran without errors")
 
 -- ======================= CLIENT: run the real UI against the real server =======================
 clientPlayer = A

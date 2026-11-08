@@ -1608,7 +1608,7 @@ local function renderPets()
 			text({
 				Position = UDim2.new(0, 6, 0, 143),
 				Size = UDim2.new(1, -12, 0, 16),
-				Text = mutation and ("Ability: " .. mutation.ability.name) or "No ability (mutate in weather)",
+				Text = mutation and (Config.WeatherTiers[mutation.tier].name .. ": " .. mutation.ability.name) or "No ability (mutate in weather)",
 				Font = mutation and Enum.Font.GothamBlack or Enum.Font.Gotham,
 				TextColor3 = mutation and mutation.color or Color3.fromRGB(95, 115, 135),
 				TextXAlignment = Enum.TextXAlignment.Center,
@@ -3247,15 +3247,14 @@ local weatherEmitter = new("ParticleEmitter", {
 	EmissionDirection = Enum.NormalId.Bottom,
 	Parent = weatherPart,
 })
-local WEATHER_LOOKS = {
-	Thunderstorm = { rate = 450, speed = NumberRange.new(80, 100), life = NumberRange.new(0.8, 1), size = 0.15, light = 0,
-		colors = ColorSequence.new(Color3.fromRGB(190, 210, 255)), tint = Color3.fromRGB(200, 210, 235), flashes = true },
-	Blizzard = { rate = 260, speed = NumberRange.new(8, 14), life = NumberRange.new(5, 7), size = 0.35, light = 0.3,
-		colors = ColorSequence.new(Color3.fromRGB(255, 255, 255)), tint = Color3.fromRGB(225, 240, 255) },
-	GoldenRain = { rate = 220, speed = NumberRange.new(28, 36), life = NumberRange.new(1.5, 2), size = 0.25, light = 1,
-		colors = ColorSequence.new(Color3.fromRGB(255, 215, 80)), tint = Color3.fromRGB(255, 240, 200) },
-	Aurora = { rate = 120, speed = NumberRange.new(3, 6), life = NumberRange.new(6, 9), size = 0.5, light = 1,
-		colors = ColorSequence.new(Color3.fromRGB(255, 110, 220), Color3.fromRGB(90, 255, 230)), tint = Color3.fromRGB(240, 220, 255) },
+-- particle settings per weather style (colors and tint come from Config.Weather)
+local WEATHER_STYLES = {
+	rain = { rate = 450, speed = NumberRange.new(80, 100), life = NumberRange.new(0.8, 1), size = 0.15, light = 0 },
+	snow = { rate = 260, speed = NumberRange.new(8, 14), life = NumberRange.new(5, 7), size = 0.35, light = 0.3 },
+	sparkle = { rate = 220, speed = NumberRange.new(28, 36), life = NumberRange.new(1.5, 2), size = 0.25, light = 1 },
+	float = { rate = 120, speed = NumberRange.new(3, 6), life = NumberRange.new(6, 9), size = 0.5, light = 1 },
+	ash = { rate = 200, speed = NumberRange.new(10, 16), life = NumberRange.new(3, 5), size = 0.3, light = 0.6 },
+	meteor = { rate = 30, speed = NumberRange.new(110, 130), life = NumberRange.new(1, 1.4), size = 0.7, light = 1 },
 }
 local weatherCC = nil
 local activeWeather = nil
@@ -3271,22 +3270,25 @@ local function updateWeather()
 		weatherBanner.Visible = true
 		weatherStroke.Color = mutation.color
 		weatherTitle.TextColor3 = mutation.color
-		weatherTitle.Text = string.format("%s  -  %d:%02d", weather.name, left // 60, left % 60)
+		local tier = Config.WeatherTiers[weather.tier]
+		weatherTitle.Text = string.format("%s: %s  -  %d:%02d", tier.name, weather.name, left // 60, left % 60)
+		weatherStroke.Color = tier.id == "Common" and mutation.color or tier.color
 		weatherDesc.Text = weather.desc
 	else
 		weatherBanner.Visible = false
 	end
 	-- effects (not underwater in the hunting grounds)
 	local show = weather and not currentArena
-	local look = show and WEATHER_LOOKS[weather.id]
+	local look = show and weather.look
+	local style = look and (WEATHER_STYLES[look.style] or WEATHER_STYLES.rain)
 	if look and activeWeather ~= weather.id then
 		activeWeather = weather.id
-		weatherEmitter.Rate = look.rate
-		weatherEmitter.Speed = look.speed
-		weatherEmitter.Lifetime = look.life
-		weatherEmitter.Size = NumberSequence.new(look.size)
-		weatherEmitter.LightEmission = look.light
-		weatherEmitter.Color = look.colors
+		weatherEmitter.Rate = style.rate
+		weatherEmitter.Speed = style.speed
+		weatherEmitter.Lifetime = style.life
+		weatherEmitter.Size = NumberSequence.new(style.size)
+		weatherEmitter.LightEmission = style.light
+		weatherEmitter.Color = #look.colors > 1 and ColorSequence.new(look.colors[1], look.colors[2]) or ColorSequence.new(look.colors[1])
 		weatherEmitter.Enabled = true
 		if not weatherCC then
 			weatherCC = new("ColorCorrectionEffect", { Name = "WeatherLook", Parent = Lighting })
@@ -3671,8 +3673,9 @@ Notify.OnClientEvent:Connect(function(msg)
 		local mutation = Config.Mutations[msg.mutation]
 		local def = Config.GetPet(msg.pet)
 		showSplash(petDisplayName(def, msg.mutation):upper() .. "!", mutation.color)
-		toast(string.format("Your %s mutated! New ability: %s - %s Bonus x%.2f, worth x%d.", def.name, mutation.ability.name,
-			mutation.ability.desc, mutation.petMult, mutation.coinMult), mutation.color, 8)
+		toast(string.format("Your %s became %s (%s)! New ability: %s - %s Bonus x%.2f, worth x%d.", def.name, mutation.name:upper(),
+			Config.WeatherTiers[mutation.tier].name, mutation.ability.name, mutation.ability.desc, mutation.petMult, mutation.coinMult),
+			mutation.color, 9)
 	elseif kind == "groupReward" then
 		showSplash("WELCOME TO THE CREW!", THEME.good)
 		for _, r in ipairs(msg.rewards) do

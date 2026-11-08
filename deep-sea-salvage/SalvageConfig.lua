@@ -611,39 +611,127 @@ Config.GroupReward = {
 -- equipped pets can mutate for good (bigger bonuses, worth more).
 -- A pet only ever mutates to a better (higher tier) mutation.
 ---------------------------------------------------------------------------
-Config.Mutations = {
-	Electric = { name = "Electrified", tier = 1, color = rgb(255, 235, 80), coinMult = 2, petMult = 1.25,
-		ability = { name = "Chain Lightning", desc = "Zaps the nearest creature and jumps to 2 more.",
-			cooldown = 4, range = 35, damage = 0.6, chains = 2 } },
-	Frozen = { name = "Frozen", tier = 2, color = rgb(160, 230, 255), coinMult = 3, petMult = 1.35,
-		ability = { name = "Frost Nova", desc = "Icy blast that hurts nearby creatures and slows them down.",
-			cooldown = 6, range = 18, damage = 0.8, slow = 0.35, slowTime = 3 } },
-	Golden = { name = "Golden", tier = 3, color = rgb(255, 200, 40), coinMult = 5, petMult = 1.5,
-		ability = { name = "Midas Strike", desc = "Heavy golden strike. Your kills give +50% coins.",
-			cooldown = 5, range = 30, damage = 1.5, coinBonus = 0.5 } },
-	Rainbow = { name = "Rainbow", tier = 4, color = rgb(255, 110, 220), coinMult = 10, petMult = 2,
-		ability = { name = "Prism Beam", desc = "Rainbow beams hit up to 3 creatures and heal you.",
-			cooldown = 3, range = 40, damage = 2.0, targets = 3, heal = 0.08 } },
+-- Weather rarity tiers. chanceEach = chance of EACH of the tier's 3 weathers
+-- on a roll (Common is the most likely, Godly the rarest). Whatever is left
+-- over is clear skies. Higher tiers pay more and their mutations are stronger.
+-- petChance (per equipped pet, every 20s of weather) goes UP with rarity, so a
+-- rare weather is a real jackpot when it finally comes.
+Config.WeatherTiers = {
+	{ id = "Common", name = "COMMON", color = rgb(200, 205, 212), chanceEach = 0.15,
+		crateChance = 0.2, petChance = 0.004, coinMult = 2, petMult = 1.2 },
+	{ id = "Rare", name = "RARE", color = rgb(80, 165, 255), chanceEach = 0.06,
+		crateChance = 0.18, petChance = 0.006, coinMult = 3, petMult = 1.35 },
+	{ id = "Epic", name = "EPIC", color = rgb(185, 105, 255), chanceEach = 0.025,
+		crateChance = 0.15, petChance = 0.01, coinMult = 5, petMult = 1.5 },
+	{ id = "Legendary", name = "LEGENDARY", color = rgb(255, 195, 50), chanceEach = 0.01,
+		crateChance = 0.12, petChance = 0.02, coinMult = 8, petMult = 1.75 },
+	{ id = "Mythic", name = "MYTHIC", color = rgb(255, 90, 220), chanceEach = 0.003,
+		crateChance = 0.1, petChance = 0.035, coinMult = 15, petMult = 2.25 },
+	{ id = "Godly", name = "GODLY", color = rgb(255, 255, 255), chanceEach = 0.0005,
+		crateChance = 0.1, petChance = 0.06, coinMult = 50, petMult = 3 },
 }
--- Ability damage = your weapon's damage x ability.damage (so pets keep up as you upgrade).
--- Abilities only fire in the hunting grounds, from each equipped mutated pet.
+
+-- Ability kinds (all damage = your weapon damage x damage):
+--   chain   : hits the nearest creature, then jumps `chains` times
+--   nova    : hits every creature within range of you
+--   strike  : one big hit on the nearest creature (splash = also hits others nearby)
+--   beam    : hits up to `targets` creatures
+--   barrage : fires `shots` bolts at random creatures in range
+--   percent : deals `percent` of each creature's max health (bosses take 1/10)
+-- Extras: slow + slowTime, burn (damage per second, x weapon) + burnTime,
+--   knockback (studs), heal (fraction of your max health),
+--   lifesteal (fraction of damage dealt), coinBonus (kills give extra coins)
+local function mutation(tierIndex, name, color, ability, extra)
+	local tier = Config.WeatherTiers[tierIndex]
+	local m = { name = name, tier = tierIndex, tierName = tier.id, color = color,
+		coinMult = tier.coinMult, petMult = tier.petMult, ability = ability }
+	for k, v in pairs(extra or {}) do
+		m[k] = v
+	end
+	return m
+end
+
+Config.Mutations = {
+	-- COMMON
+	Electric = mutation(1, "Electrified", rgb(255, 235, 80), { name = "Chain Lightning", kind = "chain",
+		desc = "Zaps the nearest creature and jumps to 2 more.", cooldown = 4, range = 35, damage = 0.6, chains = 2 }),
+	Frozen = mutation(1, "Frozen", rgb(160, 230, 255), { name = "Frost Nova", kind = "nova",
+		desc = "Icy blast that hurts nearby creatures and slows them.", cooldown = 6, range = 18, damage = 0.8, slow = 0.35, slowTime = 3 }),
+	Scorched = mutation(1, "Scorched", rgb(255, 130, 40), { name = "Flame Burst", kind = "nova",
+		desc = "Fiery blast that sets nearby creatures on fire.", cooldown = 6, range = 16, damage = 0.5, burn = 0.3, burnTime = 4 }),
+	-- RARE
+	Golden = mutation(2, "Golden", rgb(255, 200, 40), { name = "Midas Strike", kind = "strike",
+		desc = "Heavy golden hit. Your kills give +50% coins.", cooldown = 5, range = 30, damage = 1.5, coinBonus = 0.5 }),
+	Sandy = mutation(2, "Sandy", rgb(225, 195, 130), { name = "Sand Blast", kind = "nova",
+		desc = "Blinding sand that hurts and heavily slows creatures.", cooldown = 5, range = 20, damage = 0.9, slow = 0.25, slowTime = 4 }),
+	Toxic = mutation(2, "Toxic", rgb(120, 255, 90), { name = "Poison Cloud", kind = "beam",
+		desc = "Poisons up to 4 creatures for a long time.", cooldown = 5, range = 30, damage = 0.4, targets = 4, burn = 0.5, burnTime = 6 }),
+	-- EPIC
+	Rainbow = mutation(3, "Rainbow", rgb(255, 110, 220), { name = "Prism Beam", kind = "beam",
+		desc = "Rainbow beams hit 3 creatures and heal you.", cooldown = 3, range = 40, damage = 2.0, targets = 3, heal = 0.08 }, { rainbow = true }),
+	Meteoric = mutation(3, "Meteoric", rgb(255, 90, 40), { name = "Meteor Strike", kind = "strike",
+		desc = "A meteor smashes a creature and everything near it.", cooldown = 5, range = 35, damage = 2.5, splash = 12 }),
+	Tidal = mutation(3, "Tidal", rgb(40, 120, 255), { name = "Tidal Wave", kind = "nova",
+		desc = "A wave that hits everything around you and pushes it back.", cooldown = 5, range = 22, damage = 1.6, knockback = 12 }),
+	-- LEGENDARY
+	Bloodmoon = mutation(4, "Blood Moon", rgb(200, 20, 40), { name = "Life Drain", kind = "strike",
+		desc = "Drains a creature's life and heals you for part of it.", cooldown = 3, range = 30, damage = 3, lifesteal = 0.25 }),
+	Starlit = mutation(4, "Starlit", rgb(255, 245, 200), { name = "Star Barrage", kind = "barrage",
+		desc = "Rains 6 falling stars on nearby creatures.", cooldown = 4, range = 35, damage = 1.0, shots = 6 }),
+	Molten = mutation(4, "Molten", rgb(255, 70, 10), { name = "Magma Burst", kind = "nova",
+		desc = "Erupts around you and leaves creatures burning.", cooldown = 5, range = 22, damage = 2, burn = 1, burnTime = 5 }),
+	-- MYTHIC
+	Void = mutation(5, "Void", rgb(110, 40, 200), { name = "Void Rift", kind = "percent",
+		desc = "Tears 12% of max health off every creature near you.", cooldown = 6, range = 25, percent = 0.12 }),
+	Eclipsed = mutation(5, "Eclipsed", rgb(255, 170, 20), { name = "Eclipse Beam", kind = "beam",
+		desc = "Beams 8 creatures at once and heals you.", cooldown = 4, range = 45, damage = 3, targets = 8, heal = 0.05 }),
+	Abyssal = mutation(5, "Abyssal", rgb(0, 200, 180), { name = "Abyssal Grasp", kind = "nova",
+		desc = "Dark tentacles crush and nearly freeze everything nearby.", cooldown = 5, range = 26, damage = 3.5, slow = 0.15, slowTime = 4 }),
+	-- GODLY
+	Divine = mutation(6, "Divine", rgb(255, 250, 220), { name = "Judgment", kind = "nova",
+		desc = "Holy light smites every creature around you and fully heals you.", cooldown = 6, range = 40, damage = 6, heal = 1 }),
+	Cosmic = mutation(6, "Cosmic", rgb(120, 220, 255), { name = "Supernova", kind = "nova",
+		desc = "A star explodes around you: massive damage and +100% kill coins.", cooldown = 7, range = 45, damage = 10, coinBonus = 1 }, { rainbow = true }),
+	Poseidon = mutation(6, "Poseidon", rgb(60, 255, 230), { name = "Trident Storm", kind = "chain",
+		desc = "Huge lightning that jumps through 8 creatures and knocks them back.", cooldown = 3, range = 50, damage = 4, chains = 8, knockback = 8 }),
+}
+
+-- look = how the weather appears on screen (style: rain, snow, sparkle, float, ash, meteor)
+local function weather(id, name, tierIndex, mutationId, look)
+	local tier = Config.WeatherTiers[tierIndex]
+	local m = Config.Mutations[mutationId]
+	return {
+		id = id, name = name, tier = tierIndex, tierName = tier.id, mutation = mutationId, look = look,
+		chance = tier.chanceEach, crateChance = tier.crateChance, petChance = tier.petChance,
+		desc = string.format("%s weather! Crates can come up %s (x%d coins). Pets might gain %s!",
+			tier.name, m.name:upper(), tier.coinMult, m.ability.name),
+	}
+end
 
 Config.Weather = {
 	interval = 600, -- after a weather, the next roll is 10 minutes after it started
 	clearRetry = 300, -- after clear skies, try again in 5 minutes
 	duration = 120, -- weather lasts 2 minutes
 	petCheckEvery = 20, -- seconds between pet mutation rolls during weather
-	-- chance = how likely each weather is on a roll. Whatever is left over is
-	-- clear skies (here 24%). petChance = chance per equipped pet per check.
 	types = {
-		{ id = "Thunderstorm", name = "THUNDERSTORM", mutation = "Electric", chance = 0.35, crateChance = 0.2, petChance = 0.004,
-			desc = "Crates can come up ELECTRIFIED (x2 coins). Pets might gain Chain Lightning!" },
-		{ id = "Blizzard", name = "BLIZZARD", mutation = "Frozen", chance = 0.25, crateChance = 0.15, petChance = 0.0025,
-			desc = "Crates can come up FROZEN (x3 coins). Pets might gain Frost Nova!" },
-		{ id = "GoldenRain", name = "GOLDEN RAIN", mutation = "Golden", chance = 0.12, crateChance = 0.12, petChance = 0.0015,
-			desc = "Crates can come up GOLDEN (x5 coins). Pets might gain Midas Strike!" },
-		{ id = "Aurora", name = "AURORA", mutation = "Rainbow", chance = 0.04, crateChance = 0.08, petChance = 0.0012,
-			desc = "Crates can come up RAINBOW (x10 coins)! Pets might gain Prism Beam!" },
+		weather("Thunderstorm", "THUNDERSTORM", 1, "Electric", { style = "rain", colors = { rgb(190, 210, 255) }, tint = rgb(200, 210, 235), flashes = true }),
+		weather("Blizzard", "BLIZZARD", 1, "Frozen", { style = "snow", colors = { rgb(255, 255, 255) }, tint = rgb(225, 240, 255) }),
+		weather("HeatWave", "HEAT WAVE", 1, "Scorched", { style = "ash", colors = { rgb(255, 160, 60) }, tint = rgb(255, 225, 200) }),
+		weather("GoldenRain", "GOLDEN RAIN", 2, "Golden", { style = "sparkle", colors = { rgb(255, 215, 80) }, tint = rgb(255, 240, 200) }),
+		weather("Sandstorm", "SANDSTORM", 2, "Sandy", { style = "ash", colors = { rgb(225, 195, 130) }, tint = rgb(240, 220, 180) }),
+		weather("AcidRain", "ACID RAIN", 2, "Toxic", { style = "rain", colors = { rgb(140, 255, 90) }, tint = rgb(210, 245, 200) }),
+		weather("Aurora", "AURORA", 3, "Rainbow", { style = "float", colors = { rgb(255, 110, 220), rgb(90, 255, 230) }, tint = rgb(240, 220, 255) }),
+		weather("MeteorShower", "METEOR SHOWER", 3, "Meteoric", { style = "meteor", colors = { rgb(255, 120, 50) }, tint = rgb(255, 215, 195), flashes = true }),
+		weather("Whirlpool", "WHIRLPOOL", 3, "Tidal", { style = "float", colors = { rgb(60, 140, 255), rgb(200, 240, 255) }, tint = rgb(200, 220, 255) }),
+		weather("BloodMoon", "BLOOD MOON", 4, "Bloodmoon", { style = "float", colors = { rgb(220, 30, 50) }, tint = rgb(255, 170, 170) }),
+		weather("Starfall", "STARFALL", 4, "Starlit", { style = "meteor", colors = { rgb(255, 250, 210) }, tint = rgb(225, 225, 255) }),
+		weather("Eruption", "ERUPTION", 4, "Molten", { style = "ash", colors = { rgb(255, 80, 20), rgb(60, 50, 50) }, tint = rgb(255, 190, 160), flashes = true }),
+		weather("VoidStorm", "VOID STORM", 5, "Void", { style = "float", colors = { rgb(120, 40, 220), rgb(20, 0, 40) }, tint = rgb(190, 160, 230), flashes = true }),
+		weather("Eclipse", "ECLIPSE", 5, "Eclipsed", { style = "sparkle", colors = { rgb(255, 170, 20), rgb(40, 30, 10) }, tint = rgb(170, 150, 120) }),
+		weather("AbyssalTempest", "ABYSSAL TEMPEST", 5, "Abyssal", { style = "rain", colors = { rgb(0, 220, 190) }, tint = rgb(160, 210, 210), flashes = true }),
+		weather("DivineLight", "DIVINE LIGHT", 6, "Divine", { style = "sparkle", colors = { rgb(255, 255, 230), rgb(255, 230, 140) }, tint = rgb(255, 250, 235) }),
+		weather("CosmicStorm", "COSMIC STORM", 6, "Cosmic", { style = "meteor", colors = { rgb(120, 220, 255), rgb(255, 110, 220) }, tint = rgb(210, 200, 255), flashes = true }),
+		weather("PoseidonsFury", "POSEIDON'S FURY", 6, "Poseidon", { style = "rain", colors = { rgb(60, 255, 230), rgb(255, 220, 100) }, tint = rgb(190, 240, 240), flashes = true }),
 	},
 }
 

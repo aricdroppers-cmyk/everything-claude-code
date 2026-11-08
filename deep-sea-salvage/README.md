@@ -113,43 +113,60 @@ gets darker the deeper you go.
   uploaded with each save.
 
 ### Weather and mutations
-- The game rolls for weather. Each weather lasts 2 minutes, and rarer
-  weather is less likely:
-  - **Clear skies:** the next roll comes **5 minutes** later.
-  - **Weather:** the next roll comes **10 minutes** after that weather
-    started.
+- The game rolls for weather. Each weather lasts 2 minutes:
+  - **Clear skies:** the next roll comes 5 minutes later.
+  - **Weather:** the next roll comes 10 minutes after that weather started.
+- There are **18 weathers in 6 rarity tiers**, 3 per tier. Common is the most
+  likely and Godly is very, very rare:
 
-  | Weather | Chance per roll | Mutation | Haul value | Pet ability |
+  | Tier | Chance (each weather) | Weathers | Mutated crate | Pet bonus |
   |---|---|---|---|---|
-  | Thunderstorm | 35% | Electrified | x2 | **Chain Lightning**: zaps the nearest creature, jumps to 2 more |
-  | Blizzard | 25% | Frozen | x3 | **Frost Nova**: icy blast that hurts and slows nearby creatures |
-  | Golden Rain | 12% | Golden | x5 | **Midas Strike**: heavy golden hit, and your kills give +50% coins |
-  | Aurora | 4% | Rainbow | x10 | **Prism Beam**: rainbow beams hit 3 creatures and heal you |
-  | Clear skies | 24% | none | | |
+  | Common | 15% | Thunderstorm, Blizzard, Heat Wave | x2 | x1.2 |
+  | Rare | 6% | Golden Rain, Sandstorm, Acid Rain | x3 | x1.35 |
+  | Epic | 2.5% | Aurora, Meteor Shower, Whirlpool | x5 | x1.5 |
+  | Legendary | 1% | Blood Moon, Starfall, Eruption | x8 | x1.75 |
+  | Mythic | 0.3% | Void Storm, Eclipse, Abyssal Tempest | x15 | x2.25 |
+  | Godly | 0.05% | Divine Light, Cosmic Storm, Poseidon's Fury | x50 | x3 |
+  | Clear skies | about 25% | | | |
 
-- Rain, snow, falling gold or aurora sparkles fall around you, with a banner
-  and a countdown.
-- **Mutated crates:** during weather, crates can come up mutated (glowing,
-  labelled e.g. "GOLDEN x5"). That haul is worth the multiplier.
-- **Mutated pets are rare.** During weather each equipped pet has a tiny
-  chance to mutate. With 3 pets that's roughly:
+  A Godly weather happens roughly once every 100 hours of server time.
+- **Each weather has its own look:** rain, snow, embers, falling gold, aurora
+  sparkles or meteors, plus lightning flashes for the stormy ones.
+- **Each weather has its own mutation, and each mutation gives a pet its own
+  ability.** The ability fires by itself in the hunting grounds, and damage
+  scales with your weapon:
 
-  | Mutation | About 1 per… |
+  | Mutation | Ability |
   |---|---|
-  | Electrified | 7 hours of play |
-  | Frozen | 15 hours |
-  | Golden | 50 hours |
-  | Rainbow | 190 hours |
+  | Electrified | Chain Lightning: zaps a creature, jumps to 2 more |
+  | Frozen | Frost Nova: hurts and slows nearby creatures |
+  | Scorched | Flame Burst: sets nearby creatures on fire |
+  | Golden | Midas Strike: big hit, kills give +50% coins |
+  | Sandy | Sand Blast: hurts and heavily slows |
+  | Toxic | Poison Cloud: poisons 4 creatures |
+  | Rainbow | Prism Beam: hits 3 creatures, heals you |
+  | Meteoric | Meteor Strike: big hit plus splash damage |
+  | Tidal | Tidal Wave: hits everything around you and pushes it back |
+  | Blood Moon | Life Drain: big hit that heals you |
+  | Starlit | Star Barrage: 6 falling stars |
+  | Molten | Magma Burst: blast plus burning |
+  | Void | Void Rift: 12% of every nearby creature's max health |
+  | Eclipsed | Eclipse Beam: hits 8 creatures, heals you |
+  | Abyssal | Abyssal Grasp: crushes and nearly freezes nearby creatures |
+  | Divine | Judgment: smites everything around you and fully heals you |
+  | Cosmic | Supernova: huge blast, kills give +100% coins |
+  | Poseidon | Trident Storm: lightning through 8 creatures, with knockback |
 
-- A mutated pet keeps its mutation forever and gets:
-  - a stronger bonus (x1.25 to x2) and a higher release value
-  - a glowing tinted look
-  - **a combat ability** that fires by itself in the hunting grounds.
-    Ability damage scales with your weapon, so mutated pets stay useful.
-- Pets only ever upgrade (Electrified can become Golden, never the other way
-  round). Mutations carry over in trades, and everyone sees them.
-- Tune it all in `Config.Weather` (chances, `petChance`) and
-  `Config.Mutations` (multipliers, ability damage and cooldowns).
+- **Mutated crates:** during weather, crates can come up mutated and are
+  worth the tier's multiplier.
+- **Mutated pets:** every 20 seconds of weather, each equipped pet has a small
+  chance to mutate. The rarer the weather, the better the odds, so a rare
+  storm is a real jackpot.
+  - Rough time until a pet of each tier: Common ~5h, Rare ~9h, Epic ~13h,
+    Legendary ~18h, Mythic ~37h, Godly ~157h.
+  - Pets only ever upgrade to a higher tier.
+- Tune it all in `Config.WeatherTiers` (chances, odds, multipliers) and
+  `Config.Mutations` (abilities).
 
 ### Storage
 - You can hold **25 eggs** and **150 spare fragments**. The 2x Storage pass
@@ -352,7 +369,7 @@ None of these need uploaded animations:
 ## Testing
 `tests/run.sh` runs the real server **and** the real client inside a fake
 Roblox, with real 3D math. You need the free `luau` command line tool from
-https://github.com/luau-lang/luau/releases. It runs about 245 checks:
+https://github.com/luau-lang/luau/releases. It runs about 260 checks:
 - Gameplay: dives, levels, hatching, trading, the season pass (retroactive
   purchases, prestige scaling), quests, rebirth, all 3 Robux rebirth options,
   boosts and receipts (never granted twice), charms and Tide Bottles, portals,
@@ -360,7 +377,7 @@ https://github.com/luau-lang/luau/releases. It runs about 245 checks:
   (including missing a day), autosave, the global leaderboards, live prices,
   the combat animations, a brand-new player playing through the whole
   tutorial, the group reward, storage limits, the new passes, weather
-  mutating crates and pets, and all 4 pet abilities fighting on their own.
+  mutating crates and pets, and all 18 mutation abilities fighting on their own.
 - Exploits: remote spam, using prompts from far away, teleporting into
   hunting grounds you're too low for, trading items you don't have, and the
   anti-cheat (speed hack, fly hack, kick after repeated strikes, no false
