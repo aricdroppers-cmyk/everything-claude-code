@@ -11,6 +11,8 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
 
 local Config = require(ReplicatedStorage:WaitForChild("SalvageConfig"))
 local remotes = ReplicatedStorage:WaitForChild("SalvageRemotes")
@@ -137,7 +139,7 @@ local gui = new("ScreenGui", {
 local topBar = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0),
 	Position = UDim2.new(0.5, 0, 0, 8),
-	Size = UDim2.new(0, 330, 0, 44),
+	Size = UDim2.new(0, 500, 0, 44),
 	BackgroundTransparency = 1,
 	Parent = gui,
 })
@@ -186,6 +188,40 @@ end
 
 local coinsLabel = currencyPill(THEME.gold, "$", 1)
 local pearlsLabel = currencyPill(THEME.pearl, "P", 2)
+
+-- Level pill with XP bar
+local levelPill = new("Frame", {
+	Size = UDim2.new(0, 150, 1, 0),
+	BackgroundColor3 = THEME.bg,
+	BackgroundTransparency = 0.15,
+	LayoutOrder = 0,
+	Parent = topBar,
+})
+corner(levelPill, 22)
+stroke(levelPill, THEME.accent, 2, 0.2)
+local levelLabel = text({
+	Size = UDim2.new(1, -24, 0, 22),
+	Position = UDim2.new(0, 12, 0, 4),
+	Text = "Lv 1",
+	Font = Enum.Font.GothamBlack,
+	TextColor3 = THEME.accent,
+	TextXAlignment = Enum.TextXAlignment.Center,
+	MaxTextSize = 20,
+	Parent = levelPill,
+})
+local xpBar = new("Frame", {
+	Size = UDim2.new(1, -28, 0, 8),
+	Position = UDim2.new(0, 14, 1, -14),
+	BackgroundColor3 = Color3.fromRGB(30, 50, 70),
+	Parent = levelPill,
+})
+corner(xpBar, 4)
+local xpFill = new("Frame", {
+	Size = UDim2.fromScale(0, 1),
+	BackgroundColor3 = THEME.accent,
+	Parent = xpBar,
+})
+corner(xpFill, 4)
 
 ---------------------------------------------------------------------------
 -- EVENT BANNER
@@ -688,13 +724,64 @@ local function renderLogbook()
 		restored += 1
 	end
 	panelSubtitle.Text = string.format("%d/%d ships  |  Coin bonus x%.2f", restored, #Config.Ships, state.multiplier or 1)
+	listLayout()
+
+	-- toolbar: spare fragments + auto-sell
+	local spares = 0
+	for _, owned in pairs(state.parts) do
+		if owned > 1 then
+			spares += owned - 1
+		end
+	end
+	local toolbar = card(52, 0)
+	text({
+		Size = UDim2.new(0.4, 0, 0, 20),
+		Position = UDim2.new(0, 14, 0.5, -10),
+		Text = spares .. " spare fragments (tradeable)",
+		Font = Enum.Font.GothamMedium,
+		MaxTextSize = 15,
+		Parent = toolbar,
+	})
+	local autoButton = button({
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -150, 0.5, 0),
+		Size = UDim2.new(0, 170, 0, 36),
+		Text = state.autoSell and "Auto-sell spares: ON" or "Auto-sell spares: OFF",
+		BackgroundColor3 = state.autoSell and Color3.fromRGB(40, 170, 90) or Color3.fromRGB(70, 75, 90),
+		MaxTextSize = 15,
+		Parent = toolbar,
+	})
+	autoButton.MouseButton1Click:Connect(function()
+		Action:FireServer("SetAutoSell", not state.autoSell)
+	end)
+	local sellButton = button({
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -10, 0.5, 0),
+		Size = UDim2.new(0, 130, 0, 36),
+		Text = "Sell spares",
+		BackgroundColor3 = spares > 0 and Color3.fromRGB(200, 150, 40) or Color3.fromRGB(60, 65, 75),
+		MaxTextSize = 15,
+		Parent = toolbar,
+	})
+	sellButton.MouseButton1Click:Connect(function()
+		if spares > 0 then
+			Action:FireServer("SellSpares")
+		end
+	end)
+
+	local grid = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		LayoutOrder = 1,
+		Parent = content,
+	})
 	new("UIGridLayout", {
 		CellSize = UDim2.new(0.5, -6, 0, 196),
 		CellPadding = UDim2.new(0, 8, 0, 8),
 		SortOrder = Enum.SortOrder.LayoutOrder,
-		Parent = content,
+		Parent = grid,
 	})
-	new("UIPadding", { PaddingRight = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8), Parent = content })
 
 	for i, ship in ipairs(Config.Ships) do
 		local rarity = Config.Rarities[ship.rarity]
@@ -710,7 +797,7 @@ local function renderLogbook()
 		local box = new("Frame", {
 			BackgroundColor3 = THEME.card,
 			LayoutOrder = i,
-			Parent = content,
+			Parent = grid,
 		})
 		corner(box, 10)
 		stroke(box, rarity.color, isRestored and 3 or 1.5, isRestored and 0 or 0.5)
@@ -760,9 +847,11 @@ local function renderLogbook()
 			Parent = partsList,
 		})
 		for p, partName in ipairs(ship.parts) do
-			local has = (state.parts[Config.PartKey(ship.id, partName)] or 0) > 0
+			local count = state.parts[Config.PartKey(ship.id, partName)] or 0
+			local has = count > 0
 			text({
-				Text = has and ("+ " .. partName) or ("- " .. (hidden and "???" or partName)),
+				Text = has and ("+ " .. partName .. (count > 1 and ("  x" .. count) or ""))
+					or ("- " .. (hidden and "???" or partName)),
 				Font = has and Enum.Font.GothamBold or Enum.Font.Gotham,
 				TextColor3 = has and THEME.text or Color3.fromRGB(95, 115, 135),
 				LayoutOrder = p,
@@ -786,13 +875,1026 @@ local function renderLogbook()
 end
 
 ---------------------------------------------------------------------------
+-- PET MODELS (built from parts, used for followers + UI previews)
+---------------------------------------------------------------------------
+local function petPart(model, size, cf, color, material, transparency, shape)
+	local p = Instance.new("Part")
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.CastShadow = false
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	if shape then
+		p.Shape = shape
+	end
+	p.Size = size
+	p.CFrame = cf
+	p.Color = color
+	p.Material = material or Enum.Material.SmoothPlastic
+	p.Transparency = transparency or 0
+	p.Parent = model
+	return p
+end
+
+local function ellipsoid(model, size, cf, color, material, transparency)
+	local p = petPart(model, size, cf, color, material, transparency)
+	new("SpecialMesh", { MeshType = Enum.MeshType.Sphere, Parent = p })
+	return p
+end
+
+local function ball(model, d, cf, color, material)
+	return petPart(model, Vector3.new(d, d, d), cf, color, material, 0, Enum.PartType.Ball)
+end
+
+local function buildPet(def, scale)
+	local model = Instance.new("Model")
+	model.Name = def.id
+	local s = (scale or 1) * (0.8 + def.rarity * 0.12)
+	local root = petPart(model, Vector3.new(0.2, 0.2, 0.2), CFrame.new(), def.color, nil, 1)
+	root.Name = "Root"
+	model.PrimaryPart = root
+
+	local function C(x, y, z)
+		return CFrame.new(x * s, y * s, z * s)
+	end
+	local accentMat = def.glow and Enum.Material.Neon or Enum.Material.SmoothPlastic
+	local function eyes(x, y, z, size)
+		local e = size or 1
+		for _, side in ipairs({ -1, 1 }) do
+			ball(model, 0.32 * s * e, C(side * x, y, z), Color3.new(1, 1, 1))
+			ball(model, 0.17 * s * e, C(side * x * 1.05, y, z - 0.12 * e), Color3.new(0.05, 0.05, 0.05))
+		end
+	end
+
+	local shape = def.shape
+	if shape == "fish" then
+		local body = def.round and Vector3.new(1.6, 1.5, 1.7) or Vector3.new(1.0, 1.2, 2.0)
+		ellipsoid(model, body * s, C(0, 0, 0), def.color)
+		if def.stripes then
+			for _, z in ipairs({ -0.35, 0.35 }) do
+				ellipsoid(model, Vector3.new(body.X + 0.05, body.Y + 0.05, 0.25) * s, C(0, 0, z), def.accent)
+			end
+		end
+		for _, a in ipairs({ 35, -35 }) do
+			petPart(model, Vector3.new(0.12, 0.8, 0.6) * s, C(0, a > 0 and 0.2 or -0.2, body.Z / 2 + 0.25) * CFrame.Angles(math.rad(a), 0, 0),
+				def.accent, accentMat)
+		end
+		if def.fin then
+			petPart(model, Vector3.new(0.15, 1.0, 0.8) * s, C(0, body.Y / 2 + 0.3, 0.1) * CFrame.Angles(math.rad(-25), 0, 0), def.accent, accentMat)
+		else
+			petPart(model, Vector3.new(0.1, 0.45, 0.8) * s, C(0, body.Y / 2, 0.1), def.accent, accentMat)
+		end
+		for _, side in ipairs({ -1, 1 }) do
+			petPart(model, Vector3.new(0.5, 0.08, 0.35) * s, C(side * body.X / 2, -0.2, -0.1) * CFrame.Angles(0, 0, side * 0.4), def.accent, accentMat)
+		end
+		if def.round then
+			for k = 0, 7 do
+				local a = k * math.pi / 4
+				petPart(model, Vector3.new(0.12, 0.35, 0.12) * s,
+					CFrame.Angles(0, 0, a) * C(0, body.Y / 2 + 0.05, 0), def.accent)
+			end
+		end
+		if def.lure then
+			petPart(model, Vector3.new(0.07, 0.07, 1.0) * s, C(0, body.Y / 2 + 0.35, -body.Z / 2 + 0.1) * CFrame.Angles(math.rad(35), 0, 0), def.color)
+			local bulb = ball(model, 0.4 * s, C(0, body.Y / 2 + 0.6, -body.Z / 2 - 0.35), def.accent, Enum.Material.Neon)
+			new("PointLight", { Color = def.accent, Range = 6, Brightness = 2, Parent = bulb })
+		end
+		eyes(body.X * 0.36, 0.15, -body.Z * 0.32)
+	elseif shape == "crab" then
+		ellipsoid(model, Vector3.new(1.8, 0.8, 1.3) * s, C(0, 0, 0), def.color)
+		ellipsoid(model, Vector3.new(1.4, 0.5, 1.0) * s, C(0, 0.2, 0.05), def.accent)
+		for _, side in ipairs({ -1, 1 }) do
+			for k = 1, 3 do
+				petPart(model, Vector3.new(0.9, 0.12, 0.12) * s, C(side * 1.0, -0.25, -0.35 + k * 0.3) * CFrame.Angles(0, 0, side * -0.5), def.color)
+			end
+			petPart(model, Vector3.new(0.15, 0.15, 0.6) * s, C(side * 0.7, 0, -0.75), def.color)
+			ellipsoid(model, Vector3.new(0.55, 0.45, 0.65) * s, C(side * 0.85, 0.05, -1.15), def.color)
+			petPart(model, Vector3.new(0.08, 0.45, 0.08) * s, C(side * 0.25, 0.55, -0.45), def.color)
+			ball(model, 0.26 * s, C(side * 0.25, 0.8, -0.45), Color3.new(1, 1, 1))
+			ball(model, 0.14 * s, C(side * 0.25, 0.8, -0.56), Color3.new(0.05, 0.05, 0.05))
+		end
+	elseif shape == "star" then
+		ellipsoid(model, Vector3.new(0.8, 0.8, 0.4) * s, C(0, 0, 0), def.color)
+		for k = 0, 4 do
+			local rot = CFrame.Angles(0, 0, math.rad(k * 72))
+			ellipsoid(model, Vector3.new(0.5, 1.2, 0.3) * s, rot * C(0, 0.65, 0), def.color)
+			ball(model, 0.16 * s, rot * C(0, 0.8, -0.13), def.accent)
+		end
+		eyes(0.16, 0.08, -0.2, 0.7)
+	elseif shape == "turtle" then
+		ellipsoid(model, Vector3.new(1.8, 0.9, 2.1) * s, C(0, 0.15, 0), def.color)
+		ellipsoid(model, Vector3.new(1.6, 0.5, 1.9) * s, C(0, -0.15, 0), def.accent)
+		for _, z in ipairs({ -0.45, 0.05, 0.55 }) do
+			ellipsoid(model, Vector3.new(0.55, 0.2, 0.45) * s, C(0, 0.55, z), def.accent)
+		end
+		ellipsoid(model, Vector3.new(0.6, 0.55, 0.75) * s, C(0, 0.05, -1.25), def.accent)
+		eyes(0.2, 0.15, -1.45, 0.7)
+		for _, side in ipairs({ -1, 1 }) do
+			petPart(model, Vector3.new(1.0, 0.12, 0.45) * s, C(side * 1.05, -0.05, -0.55) * CFrame.Angles(0, side * math.rad(-25), 0), def.accent)
+			petPart(model, Vector3.new(0.6, 0.12, 0.35) * s, C(side * 0.85, -0.05, 0.75) * CFrame.Angles(0, side * math.rad(25), 0), def.accent)
+		end
+	elseif shape == "jelly" then
+		ellipsoid(model, Vector3.new(1.8, 1.3, 1.8) * s, C(0, 0.4, 0), def.color, accentMat, 0.25)
+		ellipsoid(model, Vector3.new(1.0, 0.7, 1.0) * s, C(0, 0.35, 0), def.accent, accentMat, 0.2)
+		for k = 0, 5 do
+			local a = k * math.pi / 3
+			petPart(model, Vector3.new(0.1, 1.4, 0.1) * s,
+				CFrame.new(math.cos(a) * 0.55 * s, -0.55 * s, math.sin(a) * 0.55 * s) * CFrame.Angles(math.sin(a) * 0.2, 0, math.cos(a) * 0.2),
+				def.accent, accentMat, 0.3)
+		end
+		eyes(0.3, 0.3, -0.82, 0.8)
+	elseif shape == "octopus" then
+		ellipsoid(model, Vector3.new(1.4, 1.7, 1.4) * s, C(0, 0.55, 0.1), def.color)
+		for _, pos in ipairs({ { 0.35, 0.9, 0.5 }, { -0.4, 1.0, 0.35 }, { 0.1, 1.25, 0.2 } }) do
+			ball(model, 0.22 * s, C(pos[1], pos[2], pos[3] - 0.6), def.accent, accentMat)
+		end
+		for k = 0, 7 do
+			local rot = CFrame.Angles(0, math.rad(k * 45), 0)
+			petPart(model, Vector3.new(0.22, 1.3, 0.22) * s, rot * C(0, -0.45, -0.5) * CFrame.Angles(math.rad(-35), 0, 0), def.color)
+			ball(model, 0.25 * s, rot * C(0, -0.95, -0.85), def.accent, accentMat)
+		end
+		eyes(0.32, 0.45, -0.55)
+	elseif shape == "ray" then
+		petPart(model, Vector3.new(2.35, 0.12, 2.35) * s, C(0, -0.05, 0) * CFrame.Angles(0, math.rad(45), 0), def.accent, accentMat)
+		petPart(model, Vector3.new(2.2, 0.2, 2.2) * s, C(0, 0, 0) * CFrame.Angles(0, math.rad(45), 0), def.color)
+		ellipsoid(model, Vector3.new(0.9, 0.45, 1.6) * s, C(0, 0.08, 0), def.color)
+		petPart(model, Vector3.new(0.08, 0.08, 2.0) * s, C(0, 0, 2.0), def.color)
+		ball(model, 0.18 * s, C(0, 0, 3.0), def.accent, accentMat)
+		eyes(0.3, 0.22, -0.6, 0.7)
+	else -- eel
+		local segments = 6
+		for i = 1, segments do
+			local d = 0.9 - i * 0.08
+			ball(model, d * s, C(math.sin(i * 0.9) * 0.3, 0, (i - 1) * 0.55), (i % 2 == 0) and def.accent or def.color,
+				(i % 2 == 0) and accentMat or nil)
+			if def.rarity >= 4 then
+				petPart(model, Vector3.new(0.05, 0.35, 0.3) * s, C(math.sin(i * 0.9) * 0.3, d * 0.5, (i - 1) * 0.55), def.accent, accentMat)
+			end
+		end
+		ellipsoid(model, Vector3.new(0.9, 0.8, 1.2) * s, C(0, 0, -0.6), def.color)
+		if def.rarity >= 4 then
+			for _, side in ipairs({ -1, 1 }) do
+				petPart(model, Vector3.new(0.1, 0.55, 0.1) * s, C(side * 0.25, 0.5, -0.4) * CFrame.Angles(math.rad(30), 0, 0), def.accent, accentMat)
+			end
+		end
+		eyes(0.25, 0.2, -0.95, 0.8)
+	end
+
+	if def.glow then
+		new("PointLight", { Color = def.accent, Range = 8, Brightness = 1.5, Parent = root })
+	end
+	return model
+end
+
+---------------------------------------------------------------------------
+-- PET FOLLOWERS (everyone's equipped pets swim behind them)
+---------------------------------------------------------------------------
+local petFolder = new("Folder", { Name = "SalvagePets_" .. player.UserId, Parent = workspace })
+local followers = {}
+local SLOT_OFFSETS = { Vector3.new(-3.2, 0, 2.5), Vector3.new(3.2, 0, 2.5), Vector3.new(0, 0.9, 4.2) }
+
+local function refreshFollowers(p)
+	local key = p:GetAttribute("EquippedPets") or ""
+	local entry = followers[p]
+	if entry and entry.key == key then
+		return
+	end
+	if entry then
+		for _, model in ipairs(entry.models) do
+			model:Destroy()
+		end
+	end
+	entry = { key = key, models = {} }
+	followers[p] = entry
+	for petId in string.gmatch(key, "[^,]+") do
+		local def = Config.GetPet(petId)
+		if def then
+			local model = buildPet(def, 0.9)
+			model.Parent = petFolder
+			table.insert(entry.models, model)
+		end
+	end
+end
+
+local function watchPlayer(p)
+	refreshFollowers(p)
+	p:GetAttributeChangedSignal("EquippedPets"):Connect(function()
+		refreshFollowers(p)
+	end)
+end
+for _, p in ipairs(Players:GetPlayers()) do
+	watchPlayer(p)
+end
+Players.PlayerAdded:Connect(watchPlayer)
+Players.PlayerRemoving:Connect(function(p)
+	local entry = followers[p]
+	if entry then
+		for _, model in ipairs(entry.models) do
+			model:Destroy()
+		end
+		followers[p] = nil
+	end
+end)
+
+RunService.RenderStepped:Connect(function(dt)
+	local t = os.clock()
+	local alpha = 1 - math.exp(-dt * 7)
+	for p, entry in pairs(followers) do
+		local character = p.Character
+		local hrp = character and character:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			for i, model in ipairs(entry.models) do
+				local offset = SLOT_OFFSETS[i] or Vector3.new(0, 0, 3 + i)
+				local bob = math.sin(t * 2.2 + i * 1.7) * 0.35
+				local target = (hrp.CFrame * CFrame.new(offset.X, offset.Y + 0.4 + bob, offset.Z)).Position
+				local current = model:GetPivot().Position
+				local pos = target
+				if model:GetAttribute("Placed") and (current - target).Magnitude < 60 then
+					pos = current:Lerp(target, alpha)
+				end
+				model:SetAttribute("Placed", true)
+				local look = hrp.CFrame.LookVector
+				model:PivotTo(CFrame.lookAt(pos, pos + Vector3.new(look.X, 0, look.Z)))
+			end
+		end
+	end
+end)
+
+---------------------------------------------------------------------------
+-- VIEWPORT PREVIEW (a little 3D window showing a pet)
+---------------------------------------------------------------------------
+local spinningViewports = {}
+
+local function petViewport(parent, def, size, position, spin)
+	local viewport = new("ViewportFrame", {
+		Size = size,
+		Position = position or UDim2.new(),
+		BackgroundTransparency = 1,
+		Ambient = Color3.fromRGB(170, 175, 190),
+		LightColor = Color3.fromRGB(255, 255, 255),
+		LightDirection = Vector3.new(-1, -1, 1),
+		Parent = parent,
+	})
+	local model = buildPet(def, 1)
+	model.Parent = viewport
+	local camera = new("Camera", { FieldOfView = 40, Parent = viewport })
+	local extents = model:GetExtentsSize().Magnitude
+	camera.CFrame = CFrame.lookAt(Vector3.new(extents * 0.8, extents * 0.45, -extents * 1.2), Vector3.new(0, 0, 0))
+	viewport.CurrentCamera = camera
+	model:PivotTo(CFrame.Angles(0, math.rad(-20), 0))
+	if spin then
+		table.insert(spinningViewports, model)
+	end
+	return viewport
+end
+
+RunService.RenderStepped:Connect(function()
+	for i = #spinningViewports, 1, -1 do
+		local model = spinningViewports[i]
+		if model.Parent then
+			model:PivotTo(CFrame.Angles(0, os.clock() * 1.2, 0))
+		else
+			table.remove(spinningViewports, i)
+		end
+	end
+end)
+
+local function eggDrawing(parent, eggDef, size, position)
+	local egg = new("Frame", {
+		Size = size,
+		Position = position,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		BackgroundColor3 = eggDef.color,
+		Parent = parent,
+	})
+	new("UICorner", { CornerRadius = UDim.new(0.5, 0), Parent = egg })
+	stroke(egg, Color3.new(1, 1, 1), 2, 0.6)
+	gradient(egg, Color3.fromRGB(255, 255, 255), Color3.fromRGB(170, 170, 185))
+	for _, spot in ipairs({ { 0.3, 0.3, 0.2 }, { 0.65, 0.45, 0.16 }, { 0.4, 0.68, 0.14 } }) do
+		local dot = new("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(spot[1], spot[2]),
+			Size = UDim2.fromScale(spot[3], spot[3] * 0.8),
+			BackgroundColor3 = eggDef.spots,
+			Parent = egg,
+		})
+		new("UICorner", { CornerRadius = UDim.new(0.5, 0), Parent = dot })
+	end
+	return egg
+end
+
+---------------------------------------------------------------------------
+-- HATCH REVEAL
+---------------------------------------------------------------------------
+local hatchOverlay = new("Frame", {
+	Size = UDim2.fromScale(1, 1),
+	BackgroundColor3 = Color3.new(0, 0, 0),
+	BackgroundTransparency = 0.3,
+	Visible = false,
+	ZIndex = 50,
+	Parent = gui,
+})
+local hatchStage = new("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.fromScale(0.5, 0.45),
+	Size = UDim2.new(0, 320, 0, 420),
+	BackgroundTransparency = 1,
+	Parent = hatchOverlay,
+})
+local hatchFlash = new("Frame", {
+	Size = UDim2.fromScale(1, 1),
+	BackgroundColor3 = Color3.new(1, 1, 1),
+	BackgroundTransparency = 1,
+	ZIndex = 5,
+	Parent = hatchOverlay,
+})
+local hatchQueue = {}
+local hatching = false
+
+local function playHatch(eggId, petId)
+	local eggDef, def = Config.GetEgg(eggId), Config.GetPet(petId)
+	if not eggDef or not def then
+		return
+	end
+	hatching = true
+	for _, child in ipairs(hatchStage:GetChildren()) do
+		child:Destroy()
+	end
+	hatchOverlay.Visible = true
+
+	local egg = eggDrawing(hatchStage, eggDef, UDim2.new(0, 170, 0, 215), UDim2.fromScale(0.5, 0.4))
+	for i = 1, 8 do
+		local angle = (i % 2 == 0 and 1 or -1) * (6 + i * 2)
+		local tween = TweenService:Create(egg, TweenInfo.new(0.22 - i * 0.015), { Rotation = angle })
+		tween:Play()
+		tween.Completed:Wait()
+	end
+	hatchFlash.BackgroundTransparency = 0
+	egg:Destroy()
+	TweenService:Create(hatchFlash, TweenInfo.new(0.6), { BackgroundTransparency = 1 }):Play()
+
+	local rarity = Config.PetRarities[def.rarity]
+	local glow = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.36),
+		Size = UDim2.new(0, 280, 0, 280),
+		BackgroundColor3 = rarity.color,
+		BackgroundTransparency = 0.75,
+		Parent = hatchStage,
+	})
+	new("UICorner", { CornerRadius = UDim.new(0.5, 0), Parent = glow })
+	petViewport(hatchStage, def, UDim2.new(0, 280, 0, 280), UDim2.new(0.5, -140, 0.36, -140), true)
+	text({
+		Position = UDim2.new(0, 0, 0, 290),
+		Size = UDim2.new(1, 0, 0, 34),
+		Text = def.name,
+		Font = Enum.Font.GothamBlack,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextStrokeTransparency = 0.3,
+		MaxTextSize = 32,
+		Parent = hatchStage,
+	})
+	text({
+		Position = UDim2.new(0, 0, 0, 326),
+		Size = UDim2.new(1, 0, 0, 22),
+		Text = rarity.name:upper(),
+		TextColor3 = rarity.color,
+		Font = Enum.Font.GothamBlack,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Parent = hatchStage,
+	})
+	text({
+		Position = UDim2.new(0, 0, 0, 350),
+		Size = UDim2.new(1, 0, 0, 18),
+		Text = Config.DescribeBonus(def.bonus),
+		TextColor3 = THEME.gold,
+		Font = Enum.Font.GothamMedium,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		MaxTextSize = 16,
+		Parent = hatchStage,
+	})
+	local continueButton = button({
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 378),
+		Size = UDim2.new(0, 160, 0, 40),
+		Text = "AWESOME!",
+		BackgroundColor3 = rarity.color,
+		TextColor3 = THEME.bg,
+		Parent = hatchStage,
+	})
+	continueButton.MouseButton1Click:Wait()
+	hatchOverlay.Visible = false
+	hatching = false
+	local nextHatch = table.remove(hatchQueue, 1)
+	if nextHatch then
+		task.spawn(playHatch, nextHatch[1], nextHatch[2])
+	end
+end
+
+---------------------------------------------------------------------------
+-- PETS PANEL
+---------------------------------------------------------------------------
+local releaseArmed = {}
+
+local function sectionTitle(label, order)
+	return text({
+		Size = UDim2.new(1, 0, 0, 24),
+		Text = label,
+		Font = Enum.Font.GothamBlack,
+		TextColor3 = THEME.accent,
+		LayoutOrder = order,
+		MaxTextSize = 18,
+		Parent = content,
+	})
+end
+
+local function gridSection(order, cellSize)
+	local holder = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		LayoutOrder = order,
+		Parent = content,
+	})
+	new("UIGridLayout", {
+		CellSize = cellSize,
+		CellPadding = UDim2.new(0, 8, 0, 8),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = holder,
+	})
+	return holder
+end
+
+local function renderPets()
+	panelTitle.Text = "PET TANK"
+	panelSubtitle.Text = string.format("Pets %d/%d  |  Equipped %d/%d", #state.pets, Config.MaxPets, #state.equipped, Config.MaxEquipped)
+	listLayout()
+
+	-- bonus summary
+	local summary = card(52, 1, THEME.gold)
+	local bonusText = Config.DescribeBonus({
+		coins = state.petBonus.coins > 0 and state.petBonus.coins or nil,
+		luck = state.petBonus.luck > 0 and state.petBonus.luck or nil,
+		hull = state.petBonus.hull > 0 and state.petBonus.hull or nil,
+		xp = state.petBonus.xp > 0 and state.petBonus.xp or nil,
+	})
+	text({
+		Size = UDim2.new(1, -180, 0, 20),
+		Position = UDim2.new(0, 14, 0.5, -10),
+		Text = "Pet bonus: " .. (bonusText ~= "" and bonusText or "none yet - equip some pets!"),
+		Font = Enum.Font.GothamMedium,
+		TextColor3 = THEME.gold,
+		MaxTextSize = 15,
+		Parent = summary,
+	})
+	local best = button({
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -10, 0.5, 0),
+		Size = UDim2.new(0, 150, 0, 36),
+		Text = "EQUIP BEST",
+		BackgroundColor3 = Color3.fromRGB(40, 170, 90),
+		MaxTextSize = 16,
+		Parent = summary,
+	})
+	best.MouseButton1Click:Connect(function()
+		Action:FireServer("EquipBest")
+	end)
+
+	-- eggs
+	sectionTitle("EGGS", 2)
+	local hasEggs = false
+	local eggGrid = gridSection(3, UDim2.new(0, 150, 0, 196))
+	for i, eggDef in ipairs(Config.Eggs) do
+		local count = state.eggs[eggDef.id] or 0
+		if count > 0 then
+			hasEggs = true
+			local box = new("Frame", { BackgroundColor3 = THEME.card, LayoutOrder = i, Parent = eggGrid })
+			corner(box, 10)
+			stroke(box, eggDef.spots, 1.5, 0.4)
+			eggDrawing(box, eggDef, UDim2.new(0, 64, 0, 80), UDim2.new(0.5, 0, 0, 52))
+			text({
+				Position = UDim2.new(0, 6, 0, 98),
+				Size = UDim2.new(1, -12, 0, 18),
+				Text = eggDef.name .. "  x" .. count,
+				TextXAlignment = Enum.TextXAlignment.Center,
+				MaxTextSize = 15,
+				Parent = box,
+			})
+			local isPearls = eggDef.currency == "Pearls"
+			local canAfford = (isPearls and state.pearls or state.coins) >= eggDef.cost
+			local hatch = button({
+				AnchorPoint = Vector2.new(0.5, 0),
+				Position = UDim2.new(0.5, 0, 0, 124),
+				Size = UDim2.new(1, -16, 0, 34),
+				Text = "HATCH",
+				BackgroundColor3 = canAfford and Color3.fromRGB(40, 170, 90) or Color3.fromRGB(60, 65, 75),
+				TextColor3 = canAfford and THEME.text or THEME.muted,
+				MaxTextSize = 16,
+				Parent = box,
+			})
+			text({
+				Position = UDim2.new(0, 6, 0, 164),
+				Size = UDim2.new(1, -12, 0, 16),
+				Text = Config.FormatNumber(eggDef.cost) .. (isPearls and " Pearls" or " Coins"),
+				TextColor3 = isPearls and THEME.pearl or THEME.gold,
+				TextXAlignment = Enum.TextXAlignment.Center,
+				MaxTextSize = 14,
+				Parent = box,
+			})
+			hatch.MouseButton1Click:Connect(function()
+				Action:FireServer("HatchEgg", eggDef.id)
+			end)
+		end
+	end
+	if not hasEggs then
+		eggGrid:Destroy()
+		text({
+			Size = UDim2.new(1, 0, 0, 20),
+			Text = "No eggs yet. Every haul has a " .. math.floor(Config.EggChance * 100 + 0.5) .. "% chance to bring one up!",
+			Font = Enum.Font.Gotham,
+			TextColor3 = THEME.muted,
+			LayoutOrder = 3,
+			MaxTextSize = 15,
+			Parent = content,
+		})
+	end
+
+	-- pets
+	sectionTitle("PETS", 4)
+	if #state.pets == 0 then
+		text({
+			Size = UDim2.new(1, 0, 0, 20),
+			Text = "No pets yet. Hatch an egg to get one!",
+			Font = Enum.Font.Gotham,
+			TextColor3 = THEME.muted,
+			LayoutOrder = 5,
+			MaxTextSize = 15,
+			Parent = content,
+		})
+		return
+	end
+	local petGrid = gridSection(5, UDim2.new(0, 150, 0, 214))
+	local sorted = table.clone(state.pets)
+	table.sort(sorted, function(a, b)
+		local ea, eb = table.find(state.equipped, a.uid) ~= nil, table.find(state.equipped, b.uid) ~= nil
+		if ea ~= eb then
+			return ea
+		end
+		return Config.PetScore(a.id) > Config.PetScore(b.id)
+	end)
+	for i, pet in ipairs(sorted) do
+		local def = Config.GetPet(pet.id)
+		if def then
+			local rarity = Config.PetRarities[def.rarity]
+			local equipped = table.find(state.equipped, pet.uid) ~= nil
+			local box = new("Frame", { BackgroundColor3 = THEME.card, LayoutOrder = i, Parent = petGrid })
+			corner(box, 10)
+			stroke(box, rarity.color, equipped and 3 or 1.5, equipped and 0 or 0.5)
+			petViewport(box, def, UDim2.new(1, 0, 0, 96), UDim2.new(0, 0, 0, 0), false)
+			text({
+				Position = UDim2.new(0, 6, 0, 96),
+				Size = UDim2.new(1, -12, 0, 18),
+				Text = def.name,
+				Font = Enum.Font.GothamBlack,
+				TextColor3 = rarity.color,
+				TextXAlignment = Enum.TextXAlignment.Center,
+				MaxTextSize = 15,
+				Parent = box,
+			})
+			text({
+				Position = UDim2.new(0, 6, 0, 116),
+				Size = UDim2.new(1, -12, 0, 26),
+				Text = Config.DescribeBonus(def.bonus),
+				Font = Enum.Font.Gotham,
+				TextColor3 = THEME.gold,
+				TextXAlignment = Enum.TextXAlignment.Center,
+				TextWrapped = true,
+				MaxTextSize = 12,
+				Parent = box,
+			})
+			local equipButton = button({
+				Position = UDim2.new(0, 8, 0, 146),
+				Size = UDim2.new(1, -16, 0, 28),
+				Text = equipped and "UNEQUIP" or "EQUIP",
+				BackgroundColor3 = equipped and Color3.fromRGB(70, 75, 90) or Color3.fromRGB(40, 170, 90),
+				MaxTextSize = 14,
+				Parent = box,
+			})
+			equipButton.MouseButton1Click:Connect(function()
+				Action:FireServer("EquipPet", pet.uid)
+			end)
+			local releaseButton = button({
+				Position = UDim2.new(0, 8, 0, 178),
+				Size = UDim2.new(1, -16, 0, 26),
+				Text = releaseArmed[pet.uid] and "TAP AGAIN TO RELEASE"
+					or ("Release +" .. Config.FormatNumber(rarity.releaseValue)),
+				BackgroundColor3 = releaseArmed[pet.uid] and THEME.danger or Color3.fromRGB(45, 50, 65),
+				TextColor3 = releaseArmed[pet.uid] and THEME.text or THEME.muted,
+				MaxTextSize = 12,
+				Parent = box,
+			})
+			releaseButton.MouseButton1Click:Connect(function()
+				if releaseArmed[pet.uid] then
+					releaseArmed[pet.uid] = nil
+					Action:FireServer("ReleasePet", pet.uid)
+				else
+					releaseArmed[pet.uid] = true
+					releaseButton.Text = "TAP AGAIN TO RELEASE"
+					releaseButton.BackgroundColor3 = THEME.danger
+					releaseButton.TextColor3 = THEME.text
+					task.delay(3, function()
+						releaseArmed[pet.uid] = nil
+					end)
+				end
+			end)
+		end
+	end
+end
+
+---------------------------------------------------------------------------
+-- TRADE PANEL
+---------------------------------------------------------------------------
+local trade = nil -- latest trade snapshot from the server, nil when not trading
+
+local function itemInfo(item)
+	if item.kind == "part" then
+		local shipId, partName = Config.SplitPartKey(item.id)
+		local ship = Config.GetShip(shipId)
+		if ship then
+			return ship.name .. ": " .. partName, Config.Rarities[ship.rarity].color
+		end
+	elseif item.kind == "egg" then
+		local egg = Config.GetEgg(item.id)
+		if egg then
+			return egg.name, egg.spots
+		end
+	elseif item.kind == "pet" then
+		local def = Config.GetPet(item.petId)
+		if def then
+			return def.name .. " (" .. Config.PetRarities[def.rarity].name .. ")", Config.PetRarities[def.rarity].color
+		end
+	end
+	return "Unknown item", THEME.muted
+end
+
+local function itemChip(parent, item, order, onClick)
+	local label, color = itemInfo(item)
+	local chip = button({
+		Size = UDim2.new(1, -8, 0, 30),
+		Text = label .. ((item.amount or 1) > 1 and ("  x" .. item.amount) or ""),
+		TextColor3 = color,
+		BackgroundColor3 = THEME.bg,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		LayoutOrder = order,
+		MaxTextSize = 14,
+		Parent = parent,
+	})
+	stroke(chip, color, 1, 0.5)
+	if onClick then
+		chip.MouseButton1Click:Connect(onClick)
+	else
+		chip.AutoButtonColor = false
+	end
+	return chip
+end
+
+local function offerBox(parent, title, items, ready, position, mine)
+	local box = new("Frame", {
+		Size = UDim2.new(0.5, -4, 1, 0),
+		Position = position,
+		BackgroundColor3 = THEME.card,
+		Parent = parent,
+	})
+	corner(box, 10)
+	stroke(box, ready and THEME.good or THEME.accent, ready and 3 or 1.5, ready and 0 or 0.5)
+	text({
+		Position = UDim2.new(0, 10, 0, 6),
+		Size = UDim2.new(1, -20, 0, 20),
+		Text = title .. (ready and "  - READY" or ""),
+		Font = Enum.Font.GothamBlack,
+		TextColor3 = ready and THEME.good or THEME.text,
+		MaxTextSize = 15,
+		Parent = box,
+	})
+	local list = new("ScrollingFrame", {
+		Position = UDim2.new(0, 8, 0, 30),
+		Size = UDim2.new(1, -12, 1, -36),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 4,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.new(),
+		Parent = box,
+	})
+	new("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder, Parent = list })
+	if #items == 0 then
+		text({
+			Size = UDim2.new(1, 0, 0, 18),
+			Text = mine and "Tap your items below to add them" or "Nothing yet...",
+			Font = Enum.Font.Gotham,
+			TextColor3 = THEME.muted,
+			MaxTextSize = 13,
+			Parent = list,
+		})
+	end
+	for i, item in ipairs(items) do
+		itemChip(list, item, i, mine and function()
+			Action:FireServer("TradeRemove", item.kind, item.id)
+		end or nil)
+	end
+end
+
+local function renderTrade()
+	panelTitle.Text = "TRADING"
+	listLayout()
+
+	if (state.level or 1) < Config.TradeUnlockLevel then
+		panelSubtitle.Text = "Locked"
+		local lock = card(110, 1, THEME.muted)
+		text({
+			Position = UDim2.new(0, 16, 0, 18),
+			Size = UDim2.new(1, -32, 0, 30),
+			Text = "Trading unlocks at Level " .. Config.TradeUnlockLevel,
+			Font = Enum.Font.GothamBlack,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			MaxTextSize = 24,
+			Parent = lock,
+		})
+		text({
+			Position = UDim2.new(0, 16, 0, 58),
+			Size = UDim2.new(1, -32, 0, 20),
+			Text = "You're Level " .. state.level .. ". Every haul gives XP, and deeper zones give more.",
+			Font = Enum.Font.Gotham,
+			TextColor3 = THEME.muted,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			MaxTextSize = 15,
+			Parent = lock,
+		})
+		return
+	end
+
+	if not trade then
+		panelSubtitle.Text = "Pick someone to trade with"
+		local others = 0
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= player then
+				others += 1
+				local level = p:GetAttribute("Level") or 1
+				local unlocked = level >= Config.TradeUnlockLevel
+				local row = card(56, others)
+				text({
+					Position = UDim2.new(0, 14, 0, 8),
+					Size = UDim2.new(0.6, 0, 0, 22),
+					Text = p.DisplayName,
+					Font = Enum.Font.GothamBlack,
+					Parent = row,
+				})
+				text({
+					Position = UDim2.new(0, 14, 0, 32),
+					Size = UDim2.new(0.6, 0, 0, 16),
+					Text = "Level " .. level .. (unlocked and "" or "  (can't trade yet)"),
+					Font = Enum.Font.Gotham,
+					TextColor3 = unlocked and THEME.accent or THEME.muted,
+					MaxTextSize = 14,
+					Parent = row,
+				})
+				local request = button({
+					AnchorPoint = Vector2.new(1, 0.5),
+					Position = UDim2.new(1, -10, 0.5, 0),
+					Size = UDim2.new(0, 150, 0, 38),
+					Text = "REQUEST TRADE",
+					BackgroundColor3 = unlocked and Color3.fromRGB(230, 140, 40) or Color3.fromRGB(60, 65, 75),
+					TextColor3 = unlocked and THEME.text or THEME.muted,
+					MaxTextSize = 15,
+					Parent = row,
+				})
+				request.MouseButton1Click:Connect(function()
+					if unlocked then
+						Action:FireServer("TradeRequest", p.UserId)
+					end
+				end)
+			end
+		end
+		if others == 0 then
+			text({
+				Size = UDim2.new(1, 0, 0, 20),
+				Text = "No one else is in this server right now.",
+				Font = Enum.Font.Gotham,
+				TextColor3 = THEME.muted,
+				MaxTextSize = 15,
+				Parent = content,
+			})
+		end
+		return
+	end
+
+	-- active trade
+	local bothReady = trade.myReady and trade.theirReady
+	panelSubtitle.Text = "Trading with " .. trade.partner
+	local offers = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 170),
+		BackgroundTransparency = 1,
+		LayoutOrder = 1,
+		Parent = content,
+	})
+	offerBox(offers, "YOUR OFFER", trade.mine, trade.myReady, UDim2.new(0, 0, 0, 0), true)
+	offerBox(offers, trade.partner:upper() .. "'S OFFER", trade.theirs, trade.theirReady, UDim2.new(0.5, 4, 0, 0), false)
+
+	local controls = card(56, 2, THEME.gold)
+	local statusText
+	if bothReady then
+		if trade.myConfirm then
+			statusText = "Waiting for " .. trade.partner .. " to confirm..."
+		else
+			statusText = "Both ready! Check the offers, then CONFIRM."
+		end
+	elseif trade.myReady then
+		statusText = "Waiting for " .. trade.partner .. " to be ready..."
+	else
+		statusText = "Add items, then press READY. Any change un-readies both of you."
+	end
+	text({
+		Position = UDim2.new(0, 12, 0.5, -9),
+		Size = UDim2.new(1, -370, 0, 18),
+		Text = statusText,
+		Font = Enum.Font.GothamMedium,
+		TextWrapped = true,
+		MaxTextSize = 13,
+		Parent = controls,
+	})
+	local readyButton = button({
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -238, 0.5, 0),
+		Size = UDim2.new(0, 110, 0, 38),
+		Text = trade.myReady and "UNREADY" or "READY",
+		BackgroundColor3 = trade.myReady and Color3.fromRGB(70, 75, 90) or Color3.fromRGB(40, 140, 200),
+		MaxTextSize = 15,
+		Parent = controls,
+	})
+	readyButton.MouseButton1Click:Connect(function()
+		Action:FireServer("TradeReady")
+	end)
+	local confirmButton = button({
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -122, 0.5, 0),
+		Size = UDim2.new(0, 110, 0, 38),
+		Text = trade.myConfirm and "CONFIRMED" or "CONFIRM",
+		BackgroundColor3 = (bothReady and not trade.myConfirm) and Color3.fromRGB(40, 170, 90) or Color3.fromRGB(60, 65, 75),
+		TextColor3 = bothReady and THEME.text or THEME.muted,
+		MaxTextSize = 15,
+		Parent = controls,
+	})
+	confirmButton.MouseButton1Click:Connect(function()
+		if bothReady then
+			Action:FireServer("TradeConfirm")
+		end
+	end)
+	local cancelButton = button({
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -10, 0.5, 0),
+		Size = UDim2.new(0, 104, 0, 38),
+		Text = "CANCEL",
+		BackgroundColor3 = THEME.danger,
+		MaxTextSize = 15,
+		Parent = controls,
+	})
+	cancelButton.MouseButton1Click:Connect(function()
+		Action:FireServer("TradeCancel")
+	end)
+
+	-- your tradeable inventory (what's left after your current offer)
+	sectionTitle("YOUR TRADEABLE ITEMS (tap to add)", 3)
+	local offered = {}
+	for _, item in ipairs(trade.mine) do
+		offered[item.kind .. ":" .. tostring(item.id)] = item.amount or 1
+	end
+	local inventory = {}
+	for key, owned in pairs(state.parts) do
+		local spare = owned - 1 - (offered["part:" .. key] or 0)
+		if spare > 0 then
+			table.insert(inventory, { kind = "part", id = key, amount = spare })
+		end
+	end
+	for _, pet in ipairs(state.pets) do
+		if not table.find(state.equipped, pet.uid) and not offered["pet:" .. tostring(pet.uid)] then
+			table.insert(inventory, { kind = "pet", id = pet.uid, petId = pet.id, amount = 1 })
+		end
+	end
+	for eggId, count in pairs(state.eggs) do
+		local left = count - (offered["egg:" .. eggId] or 0)
+		if left > 0 then
+			table.insert(inventory, { kind = "egg", id = eggId, amount = left })
+		end
+	end
+	table.sort(inventory, function(a, b)
+		local la = itemInfo(a)
+		local lb = itemInfo(b)
+		if a.kind ~= b.kind then
+			return a.kind < b.kind
+		end
+		return la < lb
+	end)
+	if #inventory == 0 then
+		text({
+			Size = UDim2.new(1, 0, 0, 34),
+			Text = "Nothing to trade. Spare fragments, unequipped pets and eggs show up here. (Tip: turn off Auto-sell in the Logbook to keep spares.)",
+			Font = Enum.Font.Gotham,
+			TextColor3 = THEME.muted,
+			TextWrapped = true,
+			LayoutOrder = 4,
+			MaxTextSize = 14,
+			Parent = content,
+		})
+	else
+		local inventoryGrid = gridSection(4, UDim2.new(0.5, -6, 0, 30))
+		for i, item in ipairs(inventory) do
+			itemChip(inventoryGrid, item, i, function()
+				Action:FireServer("TradeAdd", item.kind, item.id)
+			end)
+		end
+	end
+end
+
+---------------------------------------------------------------------------
+-- TRADE REQUEST POP-UP
+---------------------------------------------------------------------------
+local requestPopup = new("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0),
+	Position = UDim2.new(0.5, 0, 0, 132),
+	Size = UDim2.new(0, 360, 0, 96),
+	BackgroundColor3 = THEME.bg,
+	Visible = false,
+	ZIndex = 40,
+	Parent = gui,
+})
+corner(requestPopup, 12)
+stroke(requestPopup, Color3.fromRGB(230, 140, 40), 2.5, 0)
+local requestLabel = text({
+	Position = UDim2.new(0, 12, 0, 10),
+	Size = UDim2.new(1, -24, 0, 24),
+	TextXAlignment = Enum.TextXAlignment.Center,
+	Font = Enum.Font.GothamBlack,
+	MaxTextSize = 18,
+	Parent = requestPopup,
+})
+local acceptButton = button({
+	Position = UDim2.new(0, 16, 0, 46),
+	Size = UDim2.new(0.5, -24, 0, 38),
+	Text = "ACCEPT",
+	BackgroundColor3 = Color3.fromRGB(40, 170, 90),
+	Parent = requestPopup,
+})
+local declineButton = button({
+	Position = UDim2.new(0.5, 8, 0, 46),
+	Size = UDim2.new(0.5, -24, 0, 38),
+	Text = "DECLINE",
+	BackgroundColor3 = THEME.danger,
+	Parent = requestPopup,
+})
+local pendingRequestFrom = nil
+acceptButton.MouseButton1Click:Connect(function()
+	if pendingRequestFrom then
+		Action:FireServer("TradeRespond", pendingRequestFrom, true)
+	end
+	pendingRequestFrom = nil
+	requestPopup.Visible = false
+end)
+declineButton.MouseButton1Click:Connect(function()
+	if pendingRequestFrom then
+		Action:FireServer("TradeRespond", pendingRequestFrom, false)
+	end
+	pendingRequestFrom = nil
+	requestPopup.Visible = false
+end)
+
+---------------------------------------------------------------------------
 -- PANEL SWITCHING
 ---------------------------------------------------------------------------
-local renderers = { Fleet = renderFleet, Shop = renderShop, Logbook = renderLogbook }
+local renderers = { Fleet = renderFleet, Shop = renderShop, Logbook = renderLogbook, Pets = renderPets, Trade = renderTrade }
 
-local function renderPanel()
+local lastPetsSignature = nil
+
+-- The Pets panel has 3D previews, so only rebuild it when something it shows changed
+local function petsSignature()
+	local affordable = {}
+	for _, egg in ipairs(Config.Eggs) do
+		affordable[egg.id] = (egg.currency == "Pearls" and state.pearls or state.coins) >= egg.cost
+	end
+	return HttpService:JSONEncode({ state.pets, state.equipped, state.eggs, affordable })
+end
+
+local function renderPanel(force)
 	if not currentPanel or not state then
 		return
+	end
+	if currentPanel == "Pets" then
+		local signature = petsSignature()
+		if not force and signature == lastPetsSignature then
+			return
+		end
+		lastPetsSignature = signature
 	end
 	local scroll = content.CanvasPosition
 	clearContent()
@@ -814,7 +1916,7 @@ local function openPanel(name)
 	local scale = panel:FindFirstChildOfClass("UIScale") or new("UIScale", { Parent = panel })
 	scale.Scale = 0.85
 	TweenService:Create(scale, TweenInfo.new(0.2, Enum.EasingStyle.Back), { Scale = 1 }):Play()
-	renderPanel()
+	renderPanel(true)
 end
 
 closeButton.MouseButton1Click:Connect(function()
@@ -828,21 +1930,23 @@ end)
 local menu = new("Frame", {
 	AnchorPoint = Vector2.new(0, 0.5),
 	Position = UDim2.new(0, 12, 0.5, 0),
-	Size = UDim2.new(0, 112, 0, 4 * 52 + 3 * 10),
+	Size = UDim2.new(0, 112, 0, 6 * 48 + 5 * 8),
 	BackgroundTransparency = 1,
 	Parent = gui,
 })
-new("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder, Parent = menu })
+new("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder, Parent = menu })
 
 local menuItems = {
 	{ label = "FLEET", color = THEME.accent, action = function() openPanel("Fleet") end },
 	{ label = "SHOP", color = Color3.fromRGB(80, 200, 110), action = function() openPanel("Shop") end },
 	{ label = "LOGBOOK", color = Color3.fromRGB(165, 120, 255), action = function() openPanel("Logbook") end },
+	{ label = "PETS", color = Color3.fromRGB(255, 130, 200), action = function() openPanel("Pets") end },
+	{ label = "TRADE", color = Color3.fromRGB(230, 140, 40), action = function() openPanel("Trade") end },
 	{ label = "MY BAY", color = THEME.gold, action = function() Action:FireServer("GoToBay") end },
 }
 for i, item in ipairs(menuItems) do
 	local b = button({
-		Size = UDim2.new(1, 0, 0, 52),
+		Size = UDim2.new(1, 0, 0, 48),
 		Text = item.label,
 		LayoutOrder = i,
 		BackgroundColor3 = THEME.bg,
@@ -876,6 +1980,8 @@ StateUpdate.OnClientEvent:Connect(function(newState)
 		end
 	end)
 	pearlsLabel.Text = Config.FormatNumber(state.pearls)
+	levelLabel.Text = "Lv " .. state.level
+	TweenService:Create(xpFill, TweenInfo.new(0.3), { Size = UDim2.fromScale(math.clamp(state.xp / state.xpNeeded, 0, 1), 1) }):Play()
 	renderPanel()
 end)
 
@@ -917,12 +2023,59 @@ Notify.OnClientEvent:Connect(function(msg)
 			hex(THEME.pearl), msg.pearls, hex(THEME.gold), Config.FormatNumber(msg.coins)), THEME.gold, 3)
 	elseif kind == "kraken" then
 		showSplash("KRAKEN DEFEATED!", Color3.fromRGB(230, 110, 220))
+		if msg.egg then
+			toast("You earned a KRAKEN EGG! Hatch it in the PETS menu.", Color3.fromRGB(255, 150, 190), 6)
+		end
 		toast(string.format('You hit it %d times: <font color="%s">+%d Pearls</font> <font color="%s">+%s coins</font>',
 			msg.hits, hex(THEME.pearl), msg.pearls, hex(THEME.gold), Config.FormatNumber(msg.coins)), Color3.fromRGB(230, 110, 220), 6)
 	elseif kind == "bought" then
 		toast(msg.sub .. " has joined your fleet and is diving now!", THEME.good, 4)
 	elseif kind == "error" then
 		toast(msg.text, THEME.danger, 3)
+	elseif kind == "info" then
+		toast(msg.text, THEME.accent, 3)
+	elseif kind == "egg" then
+		local egg = Config.GetEgg(msg.egg)
+		toast(string.format('<font color="%s">EGG!</font> You found a %s. Hatch it in the PETS menu.', hex(egg.spots), egg.name), egg.spots, 5)
+	elseif kind == "levelup" then
+		showSplash("LEVEL " .. msg.level .. "!", THEME.accent)
+		if msg.tradeUnlocked then
+			toast("TRADING UNLOCKED! Open the TRADE menu. Turn off Auto-sell in the Logbook to keep spares.", Color3.fromRGB(230, 140, 40), 8)
+		end
+	elseif kind == "hatch" then
+		if hatching then
+			table.insert(hatchQueue, { msg.egg, msg.pet })
+		else
+			task.spawn(playHatch, msg.egg, msg.pet)
+		end
+	elseif kind == "released" then
+		local def = Config.GetPet(msg.pet)
+		toast(string.format('Released %s: <font color="%s">+%s coins</font>', def and def.name or "pet", hex(THEME.gold), Config.FormatNumber(msg.coins)), THEME.muted, 3)
+	elseif kind == "soldSpares" then
+		toast(string.format('Sold %d spares for <font color="%s">+%s coins</font>', msg.count, hex(THEME.gold), Config.FormatNumber(msg.coins)), THEME.gold, 3)
+	elseif kind == "tradeRequest" then
+		pendingRequestFrom = msg.fromUserId
+		requestLabel.Text = msg.from .. " wants to trade!"
+		requestPopup.Visible = true
+		local thisRequest = msg.fromUserId
+		task.delay(20, function()
+			if pendingRequestFrom == thisRequest then
+				pendingRequestFrom = nil
+				requestPopup.Visible = false
+			end
+		end)
+	elseif kind == "trade" then
+		local first = trade == nil
+		trade = msg
+		if first and currentPanel ~= "Trade" then
+			openPanel("Trade")
+		else
+			renderPanel()
+		end
+	elseif kind == "tradeEnded" then
+		trade = nil
+		toast(msg.text, msg.color or THEME.accent, 4)
+		renderPanel()
 	elseif kind == "welcome" then
 		toast("Welcome to Deep Sea Salvage! Your sub is already diving.", THEME.accent, 7)
 		toast("When it surfaces, hold E on the crate at your bay to haul it up.", THEME.accent, 8)

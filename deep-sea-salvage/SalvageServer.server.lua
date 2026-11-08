@@ -868,7 +868,14 @@ local function defaultData()
 		parts = {},
 		ships = {},
 		pity = 0,
-		stats = { hauls = 0, fragments = 0, breaches = 0 },
+		stats = { hauls = 0, fragments = 0, breaches = 0, hatched = 0, trades = 0 },
+		level = 1,
+		xp = 0,
+		eggs = {},
+		pets = {}, -- array of { uid = number, id = petId }
+		equipped = {}, -- array of pet uids
+		nextPetUid = 1,
+		autoSell = true, -- auto-sell spare fragments (turn off to keep them for trading)
 	}
 end
 
@@ -897,6 +904,29 @@ local function reconcile(data)
 		cleaned = { { id = Config.StartingSub, depth = 1 } }
 	end
 	data.subs = cleaned
+
+	-- drop pets/eggs that no longer exist, and equipped uids that aren't owned
+	local pets, owned = {}, {}
+	for _, pet in ipairs(data.pets) do
+		if Config.GetPet(pet.id) and #pets < Config.MaxPets then
+			table.insert(pets, pet)
+			owned[pet.uid] = true
+			data.nextPetUid = math.max(data.nextPetUid, pet.uid + 1)
+		end
+	end
+	data.pets = pets
+	local equipped = {}
+	for _, uid in ipairs(data.equipped) do
+		if owned[uid] and #equipped < Config.MaxEquipped then
+			table.insert(equipped, uid)
+		end
+	end
+	data.equipped = equipped
+	for eggId in pairs(data.eggs) do
+		if not Config.GetEgg(eggId) then
+			data.eggs[eggId] = nil
+		end
+	end
 	return data
 end
 
@@ -933,8 +963,36 @@ end
 ---------------------------------------------------------------------------
 -- STATE SYNC
 ---------------------------------------------------------------------------
+local function findPet(data, uid)
+	for i, pet in ipairs(data.pets) do
+		if pet.uid == uid then
+			return pet, i
+		end
+	end
+	return nil
+end
+
+local function isEquipped(data, uid)
+	return table.find(data.equipped, uid) ~= nil
+end
+
+local function equippedPetIds(data)
+	local ids = {}
+	for _, uid in ipairs(data.equipped) do
+		local pet = findPet(data, uid)
+		if pet then
+			table.insert(ids, pet.id)
+		end
+	end
+	return ids
+end
+
+local function petBonus(data)
+	return Config.PetBonusTotals(equippedPetIds(data))
+end
+
 local function coinMultiplier(data)
-	local mult = 1
+	local mult = 1 + petBonus(data).coins
 	for shipId in pairs(data.ships) do
 		local ship = Config.GetShip(shipId)
 		if ship then
@@ -942,6 +1000,35 @@ local function coinMultiplier(data)
 		end
 	end
 	return mult
+end
+
+-- Things other players can see: level over your head, pets that follow you
+local function updatePublicInfo(session)
+	local player = session.player
+	local data = session.data
+	player:SetAttribute("Level", data.level)
+	player:SetAttribute("EquippedPets", table.concat(equippedPetIds(data), ","))
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if leaderstats then
+		leaderstats.Level.Value = data.level
+		local ships = 0
+		for _ in pairs(data.ships) do
+			ships += 1
+		end
+		leaderstats.Ships.Value = ships
+	end
+	local character = player.Character
+	local head = character and character:FindFirstChild("Head")
+	if head then
+		local tag = head:FindFirstChild("LevelTag")
+		if not tag then
+			local _
+			_, tag = addBillboard(head, "", Color3.fromRGB(90, 255, 230), 2.2, 80, 120)
+			tag.Name = "LevelTag"
+			tag.Size = UDim2.new(0, 120, 0, 26)
+		end
+		tag:FindFirstChildOfClass("TextLabel").Text = "Lv " .. data.level
+	end
 end
 
 local function pushState(session)
@@ -967,6 +1054,14 @@ local function pushState(session)
 		ships = session.data.ships,
 		multiplier = coinMultiplier(session.data),
 		pity = session.data.pity,
+		level = session.data.level,
+		xp = session.data.xp,
+		xpNeeded = Config.XPToNext(session.data.level),
+		eggs = session.data.eggs,
+		pets = session.data.pets,
+		equipped = session.data.equipped,
+		autoSell = session.data.autoSell,
+		petBonus = petBonus(session.data),
 	})
 end
 
@@ -1027,8 +1122,9 @@ local function rollHaul(session, zoneIndex, subDef)
 	local count = (currentEvent == "StormSurge") and 2 or 1
 	local fragments = {}
 	local best = 1
+	local luck = subDef.luck * (1 + petBonus(data).luck)
 	for _ = 1, count do
-		local rarity = rollRarity(zone, subDef.luck)
+		local rarity = rollRarity(zone, luck)
 		if zone.weights[4] > 0 then
 			if rarity >= 4 then
 				data.pity = 0
@@ -1044,10 +1140,17 @@ local function rollHaul(session, zoneIndex, subDef)
 		table.insert(fragments, { ship = pick.ship.id, part = pick.part, rarity = rarity })
 		best = math.max(best, rarity)
 	end
+	local egg = nil
+	if rng:NextNumber() < Config.EggChance then
+		local eggDef = Config.EggForZone(zoneIndex)
+		egg = eggDef and eggDef.id
+	end
 	return {
 		fragments = fragments,
 		coins = math.floor(zone.coins * coinMultiplier(data)),
 		best = best,
+		egg = egg,
+		zone = zoneIndex,
 	}
 end
 
@@ -1068,6 +1171,7 @@ local function checkShipComplete(session, shipId)
 			session.shipModels[shipId] = buildShipModel(def, session.bay.shipSlots[slot], session.bay.folder)
 		end
 	end
+	updatePublicInfo(session)
 	notify(session.player, { kind = "ship", ship = shipId })
 	announce(session.player.DisplayName .. " restored " .. ship.name .. "!", Config.Rarities[ship.rarity].color)
 end
@@ -1076,6 +1180,25 @@ end
 -- FLEET LOOP: dive -> surface -> crate -> collect -> dive again
 ---------------------------------------------------------------------------
 local startDive
+
+local function addXP(session, amount)
+	local data = session.data
+	data.xp += math.floor(amount * (1 + petBonus(data).xp))
+	local leveled = false
+	while data.level < Config.MaxLevel and data.xp >= Config.XPToNext(data.level) do
+		data.xp -= Config.XPToNext(data.level)
+		data.level += 1
+		leveled = true
+		notify(session.player, {
+			kind = "levelup",
+			level = data.level,
+			tradeUnlocked = data.level == Config.TradeUnlockLevel,
+		})
+	end
+	if leveled then
+		updatePublicInfo(session)
+	end
+end
 
 local function collectCrate(session, index)
 	local entry = session.fleet[index]
@@ -1091,15 +1214,19 @@ local function collectCrate(session, index)
 
 	local data = session.data
 	local total = haul.coins
+	local xp = Config.Zones[haul.zone].xp
 	data.stats.hauls += 1
 	for _, frag in ipairs(haul.fragments) do
 		local key = Config.PartKey(frag.ship, frag.part)
 		local owned = data.parts[key] or 0
 		local isNew = owned == 0
-		data.parts[key] = owned + 1
-		data.stats.fragments += 1
 		local sold = 0
-		if not isNew then
+		xp += Config.FragmentXP[frag.rarity] + (isNew and Config.NewFragmentXP or 0)
+		data.stats.fragments += 1
+		if isNew or not data.autoSell then
+			-- keep it (first copy restores ships, extra copies are spares for trading)
+			data.parts[key] = owned + 1
+		else
 			sold = Config.Rarities[frag.rarity].sellValue
 			total += sold
 		end
@@ -1120,8 +1247,13 @@ local function collectCrate(session, index)
 			checkShipComplete(session, frag.ship)
 		end
 	end
+	if haul.egg then
+		data.eggs[haul.egg] = (data.eggs[haul.egg] or 0) + 1
+		notify(session.player, { kind = "egg", egg = haul.egg })
+	end
 	data.coins += total
 	notify(session.player, { kind = "coins", amount = total })
+	addXP(session, xp)
 	startDive(session, index)
 	pushState(session)
 end
@@ -1131,6 +1263,29 @@ local function spawnCrate(session, index)
 	local berth = session.bay.berths[index]
 	local rarityDef = Config.Rarities[entry.haul.best]
 	local crate = buildCrate(entry.haul.best, berth.crateCF, session.bay.folder)
+	if entry.haul.egg then
+		local eggDef = Config.GetEgg(entry.haul.egg)
+		local egg = makePart({
+			Name = "Egg",
+			Size = Vector3.new(1.4, 1.8, 1.4),
+			CFrame = crate.CFrame * CFrame.new(0, 2.4, 0),
+			Color = eggDef.color,
+			Material = Enum.Material.SmoothPlastic,
+			CanCollide = false,
+			Parent = crate,
+		})
+		local mesh = Instance.new("SpecialMesh")
+		mesh.MeshType = Enum.MeshType.Sphere
+		mesh.Parent = egg
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = crate
+		weld.Part1 = egg
+		weld.Parent = egg
+		local glow = Instance.new("PointLight")
+		glow.Color = eggDef.spots
+		glow.Range = 8
+		glow.Parent = egg
+	end
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.ActionText = "Haul Up"
 	prompt.ObjectText = session.player.DisplayName .. "'s " .. rarityDef.name .. " Crate"
@@ -1154,7 +1309,7 @@ local function finishDive(session, index)
 	local subDef = Config.GetSub(subData.id)
 	entry.status = "Surfacing"
 
-	local breach = Config.BreachChance(subDef, entry.zone)
+	local breach = math.max(0, Config.BreachChance(subDef, entry.zone) - petBonus(session.data).hull)
 	if currentEvent == "StormSurge" then
 		breach += Config.StormExtraBreach
 	end
@@ -1223,6 +1378,433 @@ local function teleportToBay(session)
 end
 
 ---------------------------------------------------------------------------
+-- PETS
+---------------------------------------------------------------------------
+local function rollPet(eggId)
+	local pool = Config.PetsInEgg(eggId)
+	local total = 0
+	for _, pet in ipairs(pool) do
+		total += pet.weight
+	end
+	local roll = rng:NextNumber() * total
+	for _, pet in ipairs(pool) do
+		roll -= pet.weight
+		if roll <= 0 then
+			return pet
+		end
+	end
+	return pool[#pool]
+end
+
+local function givePet(data, petId)
+	local uid = data.nextPetUid
+	data.nextPetUid += 1
+	table.insert(data.pets, { uid = uid, id = petId })
+	return uid
+end
+
+local function hatchEgg(session, eggId)
+	local data = session.data
+	local eggDef = Config.GetEgg(eggId)
+	if not eggDef or (data.eggs[eggId] or 0) < 1 then
+		return
+	end
+	if #data.pets >= Config.MaxPets then
+		notify(session.player, { kind = "error", text = "Your pet tank is full (" .. Config.MaxPets .. "). Release a pet first." })
+		return
+	end
+	local wallet = eggDef.currency == "Pearls" and "pearls" or "coins"
+	if data[wallet] < eggDef.cost then
+		notify(session.player, { kind = "error", text = "Hatching this egg costs " .. Config.FormatNumber(eggDef.cost) .. " " .. eggDef.currency .. "." })
+		return
+	end
+	data[wallet] -= eggDef.cost
+	data.eggs[eggId] -= 1
+	if data.eggs[eggId] <= 0 then
+		data.eggs[eggId] = nil
+	end
+	local pet = rollPet(eggId)
+	local uid = givePet(data, pet.id)
+	data.stats.hatched += 1
+	-- auto-equip into a free slot
+	if #data.equipped < Config.MaxEquipped then
+		table.insert(data.equipped, uid)
+	end
+	notify(session.player, { kind = "hatch", egg = eggId, pet = pet.id })
+	if pet.rarity >= 4 then
+		announce(session.player.DisplayName .. " hatched a " .. Config.PetRarities[pet.rarity].name .. " " .. pet.name .. "!",
+			Config.PetRarities[pet.rarity].color)
+	end
+	updatePublicInfo(session)
+	pushState(session)
+end
+
+local function toggleEquip(session, uid)
+	local data = session.data
+	if not findPet(data, uid) then
+		return
+	end
+	local index = table.find(data.equipped, uid)
+	if index then
+		table.remove(data.equipped, index)
+	elseif #data.equipped < Config.MaxEquipped then
+		table.insert(data.equipped, uid)
+	else
+		notify(session.player, { kind = "error", text = "You can only equip " .. Config.MaxEquipped .. " pets." })
+		return
+	end
+	updatePublicInfo(session)
+	pushState(session)
+end
+
+local function equipBest(session)
+	local data = session.data
+	local sorted = table.clone(data.pets)
+	table.sort(sorted, function(a, b)
+		return Config.PetScore(a.id) > Config.PetScore(b.id)
+	end)
+	data.equipped = {}
+	for i = 1, math.min(Config.MaxEquipped, #sorted) do
+		table.insert(data.equipped, sorted[i].uid)
+	end
+	updatePublicInfo(session)
+	pushState(session)
+end
+
+local Trades = {} -- [player] = trade (both players point at the same table)
+
+local function releasePet(session, uid)
+	local data = session.data
+	local pet, index = findPet(data, uid)
+	if not pet then
+		return
+	end
+	if Trades[session.player] then
+		notify(session.player, { kind = "error", text = "Finish your trade before releasing pets." })
+		return
+	end
+	local equippedIndex = table.find(data.equipped, uid)
+	if equippedIndex then
+		table.remove(data.equipped, equippedIndex)
+	end
+	table.remove(data.pets, index)
+	local def = Config.GetPet(pet.id)
+	local value = Config.PetRarities[def.rarity].releaseValue
+	data.coins += value
+	notify(session.player, { kind = "released", pet = pet.id, coins = value })
+	updatePublicInfo(session)
+	pushState(session)
+end
+
+local function sellSpares(session)
+	local data = session.data
+	if Trades[session.player] then
+		notify(session.player, { kind = "error", text = "Finish your trade before selling spares." })
+		return
+	end
+	local total, count = 0, 0
+	for key, owned in pairs(data.parts) do
+		if owned > 1 then
+			local _, ship = Config.IsValidPartKey(key)
+			if ship then
+				total += (owned - 1) * Config.Rarities[ship.rarity].sellValue
+				count += owned - 1
+				data.parts[key] = 1
+			end
+		end
+	end
+	data.coins += total
+	notify(session.player, { kind = "soldSpares", count = count, coins = total })
+	pushState(session)
+end
+
+---------------------------------------------------------------------------
+-- TRADING
+-- Flow: request -> accept -> both add items -> both Ready -> both Confirm.
+-- Any change to either offer resets Ready/Confirm for both players.
+---------------------------------------------------------------------------
+local TradeRequests = {} -- [target player] = { from = player, expires = time }
+
+local function emptyOffer()
+	return { parts = {}, pets = {}, eggs = {} }
+end
+
+local function canTrade(session)
+	return session and session.loaded and session.data.level >= Config.TradeUnlockLevel
+end
+
+local function offerItems(session, offer)
+	local items = {}
+	for key, amount in pairs(offer.parts) do
+		table.insert(items, { kind = "part", id = key, amount = amount })
+	end
+	for uid in pairs(offer.pets) do
+		local pet = findPet(session.data, uid)
+		if pet then
+			table.insert(items, { kind = "pet", id = uid, petId = pet.id, amount = 1 })
+		end
+	end
+	for eggId, amount in pairs(offer.eggs) do
+		table.insert(items, { kind = "egg", id = eggId, amount = amount })
+	end
+	return items
+end
+
+local function sendTradeState(trade)
+	for _, me in ipairs(trade.players) do
+		local them = trade.players[1] == me and trade.players[2] or trade.players[1]
+		local mySession, theirSession = Sessions[me], Sessions[them]
+		if mySession and theirSession then
+			notify(me, {
+				kind = "trade",
+				partner = them.DisplayName,
+				mine = offerItems(mySession, trade.offers[me]),
+				theirs = offerItems(theirSession, trade.offers[them]),
+				myReady = trade.ready[me] == true,
+				theirReady = trade.ready[them] == true,
+				myConfirm = trade.confirmed[me] == true,
+				theirConfirm = trade.confirmed[them] == true,
+			})
+		end
+	end
+end
+
+local function endTrade(trade, message, color)
+	for _, p in ipairs(trade.players) do
+		if Trades[p] == trade then
+			Trades[p] = nil
+		end
+		if p.Parent then
+			notify(p, { kind = "tradeEnded", text = message, color = color })
+		end
+	end
+end
+
+local function resetReady(trade)
+	trade.ready = {}
+	trade.confirmed = {}
+end
+
+-- How many of this item the player could still add to their offer
+local function availableToOffer(session, offer, kind, id)
+	local data = session.data
+	if kind == "part" then
+		return math.max(0, (data.parts[id] or 0) - 1 - (offer.parts[id] or 0))
+	elseif kind == "egg" then
+		return math.max(0, (data.eggs[id] or 0) - (offer.eggs[id] or 0))
+	elseif kind == "pet" then
+		if findPet(data, id) and not isEquipped(data, id) and not offer.pets[id] then
+			return 1
+		end
+	end
+	return 0
+end
+
+local function offerStillValid(session, offer)
+	local data = session.data
+	for key, amount in pairs(offer.parts) do
+		if (data.parts[key] or 0) - 1 < amount then
+			return false
+		end
+	end
+	for eggId, amount in pairs(offer.eggs) do
+		if (data.eggs[eggId] or 0) < amount then
+			return false
+		end
+	end
+	for uid in pairs(offer.pets) do
+		if not findPet(data, uid) or isEquipped(data, uid) then
+			return false
+		end
+	end
+	return true
+end
+
+local function countKeys(t)
+	local n = 0
+	for _ in pairs(t) do
+		n += 1
+	end
+	return n
+end
+
+local function executeTrade(trade)
+	local a, b = trade.players[1], trade.players[2]
+	local sa, sb = Sessions[a], Sessions[b]
+	if not sa or not sb then
+		endTrade(trade, "Trade cancelled.", Color3.fromRGB(255, 95, 95))
+		return
+	end
+	local oa, ob = trade.offers[a], trade.offers[b]
+	if not offerStillValid(sa, oa) or not offerStillValid(sb, ob) then
+		endTrade(trade, "Trade cancelled: some items changed before it finished.", Color3.fromRGB(255, 95, 95))
+		return
+	end
+	local petsOutA, petsOutB = countKeys(oa.pets), countKeys(ob.pets)
+	if #sa.data.pets - petsOutA + petsOutB > Config.MaxPets or #sb.data.pets - petsOutB + petsOutA > Config.MaxPets then
+		endTrade(trade, "Trade cancelled: a pet tank would be over " .. Config.MaxPets .. " pets.", Color3.fromRGB(255, 95, 95))
+		return
+	end
+
+	local function transfer(from, to, offer)
+		local shipsTouched = {}
+		for key, amount in pairs(offer.parts) do
+			from.data.parts[key] -= amount
+			to.data.parts[key] = (to.data.parts[key] or 0) + amount
+			local shipId = Config.SplitPartKey(key)
+			shipsTouched[shipId] = true
+		end
+		for eggId, amount in pairs(offer.eggs) do
+			from.data.eggs[eggId] -= amount
+			if from.data.eggs[eggId] <= 0 then
+				from.data.eggs[eggId] = nil
+			end
+			to.data.eggs[eggId] = (to.data.eggs[eggId] or 0) + amount
+		end
+		for uid in pairs(offer.pets) do
+			local pet, index = findPet(from.data, uid)
+			table.remove(from.data.pets, index)
+			givePet(to.data, pet.id)
+		end
+		return shipsTouched
+	end
+
+	local touchedB = transfer(sa, sb, oa)
+	local touchedA = transfer(sb, sa, ob)
+	for shipId in pairs(touchedA) do
+		checkShipComplete(sa, shipId)
+	end
+	for shipId in pairs(touchedB) do
+		checkShipComplete(sb, shipId)
+	end
+	for _, s in ipairs({ sa, sb }) do
+		s.data.stats.trades += 1
+		updatePublicInfo(s)
+		pushState(s)
+		task.spawn(saveData, s) -- save both right away so the trade sticks
+	end
+	endTrade(trade, "Trade complete!", Color3.fromRGB(110, 235, 140))
+end
+
+local function startTrade(a, b)
+	local trade = {
+		players = { a, b },
+		offers = { [a] = emptyOffer(), [b] = emptyOffer() },
+		ready = {},
+		confirmed = {},
+	}
+	Trades[a] = trade
+	Trades[b] = trade
+	sendTradeState(trade)
+end
+
+local function handleTradeAction(player, session, action, arg1, arg2)
+	if action == "TradeRequest" then
+		local target = typeof(arg1) == "number" and Players:GetPlayerByUserId(arg1) or nil
+		local targetSession = target and Sessions[target]
+		if not canTrade(session) then
+			notify(player, { kind = "error", text = "Trading unlocks at Level " .. Config.TradeUnlockLevel .. "." })
+		elseif not target or target == player or not targetSession then
+			notify(player, { kind = "error", text = "That player isn't available." })
+		elseif not canTrade(targetSession) then
+			notify(player, { kind = "error", text = target.DisplayName .. " hasn't reached Level " .. Config.TradeUnlockLevel .. " yet." })
+		elseif Trades[player] or Trades[target] then
+			notify(player, { kind = "error", text = "One of you is already trading." })
+		else
+			TradeRequests[target] = { from = player, expires = os.clock() + 20 }
+			notify(target, { kind = "tradeRequest", from = player.DisplayName, fromUserId = player.UserId })
+			notify(player, { kind = "info", text = "Trade request sent to " .. target.DisplayName .. "." })
+		end
+	elseif action == "TradeRespond" then
+		local request = TradeRequests[player]
+		TradeRequests[player] = nil
+		if not request or os.clock() > request.expires or not request.from.Parent then
+			notify(player, { kind = "error", text = "That trade request expired." })
+			return
+		end
+		if typeof(arg1) ~= "number" or request.from.UserId ~= arg1 then
+			return
+		end
+		if arg2 ~= true then
+			notify(request.from, { kind = "error", text = player.DisplayName .. " declined your trade." })
+			return
+		end
+		if Trades[player] or Trades[request.from] or not canTrade(session) or not canTrade(Sessions[request.from]) then
+			notify(player, { kind = "error", text = "That trade can't start right now." })
+			return
+		end
+		startTrade(request.from, player)
+	else
+		local trade = Trades[player]
+		if not trade then
+			return
+		end
+		local offer = trade.offers[player]
+		if action == "TradeAdd" then
+			local kind, id = arg1, arg2
+			if kind == "part" and not Config.IsValidPartKey(id) then
+				return
+			elseif kind == "egg" and not (typeof(id) == "string" and Config.GetEgg(id)) then
+				return
+			elseif kind == "pet" and typeof(id) ~= "number" then
+				return
+			elseif kind ~= "part" and kind ~= "egg" and kind ~= "pet" then
+				return
+			end
+			if availableToOffer(session, offer, kind, id) < 1 then
+				notify(player, { kind = "error", text = "You don't have a spare one to trade." })
+				return
+			end
+			if kind == "part" then
+				offer.parts[id] = (offer.parts[id] or 0) + 1
+			elseif kind == "egg" then
+				offer.eggs[id] = (offer.eggs[id] or 0) + 1
+			else
+				offer.pets[id] = true
+			end
+			resetReady(trade)
+			sendTradeState(trade)
+		elseif action == "TradeRemove" then
+			local kind, id = arg1, arg2
+			if kind == "part" and offer.parts[id] then
+				offer.parts[id] -= 1
+				if offer.parts[id] <= 0 then
+					offer.parts[id] = nil
+				end
+			elseif kind == "egg" and offer.eggs[id] then
+				offer.eggs[id] -= 1
+				if offer.eggs[id] <= 0 then
+					offer.eggs[id] = nil
+				end
+			elseif kind == "pet" and offer.pets[id] then
+				offer.pets[id] = nil
+			else
+				return
+			end
+			resetReady(trade)
+			sendTradeState(trade)
+		elseif action == "TradeReady" then
+			trade.ready[player] = not trade.ready[player]
+			trade.confirmed = {}
+			sendTradeState(trade)
+		elseif action == "TradeConfirm" then
+			local a, b = trade.players[1], trade.players[2]
+			if not (trade.ready[a] and trade.ready[b]) then
+				return
+			end
+			trade.confirmed[player] = true
+			if trade.confirmed[a] and trade.confirmed[b] then
+				executeTrade(trade)
+			else
+				sendTradeState(trade)
+			end
+		elseif action == "TradeCancel" then
+			endTrade(trade, player.DisplayName .. " cancelled the trade.", Color3.fromRGB(255, 95, 95))
+		end
+	end
+end
+
+---------------------------------------------------------------------------
 -- PLAYER JOIN / LEAVE
 ---------------------------------------------------------------------------
 local function claimBay(player)
@@ -1267,10 +1849,25 @@ local function onPlayerAdded(player)
 	}
 	Sessions[player] = session
 
+	local leaderstats = Instance.new("Folder")
+	leaderstats.Name = "leaderstats"
+	local levelValue = Instance.new("IntValue")
+	levelValue.Name = "Level"
+	levelValue.Value = 1
+	levelValue.Parent = leaderstats
+	local shipsValue = Instance.new("IntValue")
+	shipsValue.Name = "Ships"
+	shipsValue.Parent = leaderstats
+	leaderstats.Parent = player
+
 	player.CharacterAdded:Connect(function(character)
 		character:WaitForChild("HumanoidRootPart", 10)
+		character:WaitForChild("Head", 10)
 		task.wait(0.1)
 		teleportToBay(session)
+		if session.loaded then
+			updatePublicInfo(session)
+		end
 	end)
 	if player.Character then
 		task.spawn(teleportToBay, session)
@@ -1293,6 +1890,7 @@ local function onPlayerAdded(player)
 		end
 	end
 
+	updatePublicInfo(session)
 	pushState(session)
 	notify(player, { kind = "welcome", canSave = canSave })
 end
@@ -1303,6 +1901,11 @@ local function onPlayerRemoving(player)
 		return
 	end
 	session.active = false
+	local trade = Trades[player]
+	if trade then
+		endTrade(trade, player.DisplayName .. " left, so the trade was cancelled.", Color3.fromRGB(255, 95, 95))
+	end
+	TradeRequests[player] = nil
 	Sessions[player] = nil
 	if session.loaded then
 		saveData(session)
@@ -1398,6 +2001,21 @@ Action.OnServerEvent:Connect(function(player, action, arg1, arg2)
 		end
 	elseif action == "GoToBay" then
 		teleportToBay(session)
+	elseif action == "HatchEgg" and typeof(arg1) == "string" then
+		hatchEgg(session, arg1)
+	elseif action == "EquipPet" and typeof(arg1) == "number" then
+		toggleEquip(session, arg1)
+	elseif action == "EquipBest" then
+		equipBest(session)
+	elseif action == "ReleasePet" and typeof(arg1) == "number" then
+		releasePet(session, arg1)
+	elseif action == "SellSpares" then
+		sellSpares(session)
+	elseif action == "SetAutoSell" and typeof(arg1) == "boolean" then
+		data.autoSell = arg1
+		pushState(session)
+	elseif string.sub(tostring(action), 1, 5) == "Trade" then
+		handleTradeAction(player, session, action, arg1, arg2)
 	elseif action == "RequestState" then
 		pushState(session)
 	end
@@ -1644,7 +2262,11 @@ EventHandlers.Kraken = function(ctx)
 					local pearls = Config.KrakenPearls + (session.krakenHits >= 25 and 2 or 0)
 					session.data.coins += coins
 					session.data.pearls += pearls
-					notify(session.player, { kind = "kraken", coins = coins, pearls = pearls, hits = session.krakenHits })
+					local gotEgg = session.krakenHits >= Config.KrakenEggMinHits
+					if gotEgg then
+						session.data.eggs.Kraken = (session.data.eggs.Kraken or 0) + 1
+					end
+					notify(session.player, { kind = "kraken", coins = coins, pearls = pearls, hits = session.krakenHits, egg = gotEgg })
 					pushState(session)
 				end
 			end
