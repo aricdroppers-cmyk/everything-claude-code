@@ -1235,6 +1235,24 @@ end
 -- shine that sweeps across green buttons now and then
 local shines = {}
 
+-- little 4-point sparkles that twinkle around special things
+local twinkles = {}
+local function sparkle(parent, position, size, zIndex)
+	local star = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = position,
+		Size = UDim2.new(0, size, 0, size),
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		Rotation = 45,
+		ZIndex = zIndex or 3,
+		Parent = parent,
+	})
+	corner(star, 2)
+	local scale = new("UIScale", { Parent = star })
+	table.insert(twinkles, { frame = star, scale = scale, phase = math.random() * 6 })
+	return star
+end
+
 -- everything that moves: rays turn, models spin/sway, shines sweep (~30 fps is plenty)
 local fxClock = 0
 RunService.RenderStepped:Connect(function(dt)
@@ -1259,6 +1277,17 @@ RunService.RenderStepped:Connect(function(dt)
 			m.model:PivotTo(CFrame.Angles(0, angle, 0) * CFrame.new(0, math.sin(t * 2 + m.phase) * 0.08, 0))
 		else
 			table.remove(viewportMotion, i)
+		end
+	end
+	for i = #twinkles, 1, -1 do
+		local tw = twinkles[i]
+		if tw.frame.Parent then
+			local p = (math.sin(t * 3 + tw.phase) + 1) / 2
+			tw.scale.Scale = 0.3 + p * 0.9
+			tw.frame.BackgroundTransparency = 0.6 - p * 0.6
+			tw.frame.Rotation = 45 + t * 40
+		else
+			table.remove(twinkles, i)
 		end
 	end
 	for i = #shines, 1, -1 do
@@ -1535,7 +1564,7 @@ local function sectionTitle(label, order)
 	})
 end
 
-local function gridSection(order, cellSize)
+local function gridSection(order, cellSize, rowGap)
 	local holder = new("Frame", {
 		Size = UDim2.new(1, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
@@ -1545,7 +1574,7 @@ local function gridSection(order, cellSize)
 	})
 	new("UIGridLayout", {
 		CellSize = cellSize,
-		CellPadding = UDim2.new(0, 8, 0, 8),
+		CellPadding = UDim2.new(0, 8, 0, rowGap or 8),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = holder,
 	})
@@ -3194,6 +3223,13 @@ local STORE_ACCENTS = {
 	season = Color3.fromRGB(255, 90, 220),
 	pass = Color3.fromRGB(255, 205, 80),
 }
+-- big tilted value stamp on each store tile
+local STORE_STAMPS = {
+	DoubleCoins = "2X", LuckyDiver = "+50%", AutoHaul = "AUTO", PetSlots = "+2", VIP = "VIP",
+	BigStorage = "2X", BigTank = "100", DoubleDamage = "2X",
+	BoostCoins = "2X", BoostLuck = "2X", BoostXP = "2X", RebirthRush = "2X", LevelPack = "+3", InstantRebirth = "NOW",
+}
+
 -- each store item has its own tile color
 local STORE_COLORS = {
 	DoubleCoins = Color3.fromRGB(80, 200, 95), LuckyDiver = Color3.fromRGB(120, 215, 70), AutoHaul = Color3.fromRGB(70, 160, 245),
@@ -3222,9 +3258,31 @@ local function storeCard(parent, order, item, owned, accent, extra, badge)
 	shade(box)
 	stroke(box, INK, 3, 0)
 	stripes(box, 18)
-	-- big 3D icon with rays of light behind it
-	sunburst(box, Color3.fromRGB(255, 255, 255), 150, UDim2.new(0, 70, 0, 74), 0)
-	iconViewport(box, item.key, UDim2.new(0, 130, 0, 130), UDim2.new(0, 5, 0, 9), 1)
+	-- big 3D icon with rays of light behind it, popping out over the top of the tile
+	sunburst(box, Color3.fromRGB(255, 255, 255), 170, UDim2.new(0, 72, 0, 62), 0)
+	iconViewport(box, item.key, UDim2.new(0, 150, 0, 150), UDim2.new(0, -4, 0, -22), 2)
+	sparkle(box, UDim2.new(0, 24, 0, 8), 12)
+	sparkle(box, UDim2.new(0, 128, 0, 30), 10)
+	sparkle(box, UDim2.new(0, 112, 0, 118), 9)
+	local stampText = STORE_STAMPS[item.key]
+	if stampText then
+		local stamp = text({
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(0, 46, 1, -26),
+			Size = UDim2.new(0, 96, 0, 40),
+			Text = stampText,
+			TextColor3 = Color3.fromRGB(255, 240, 120),
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Rotation = -12,
+			MaxTextSize = 34,
+			ZIndex = 4,
+			Parent = box,
+		})
+		local outline = stamp:FindFirstChildOfClass("UIStroke")
+		if outline then
+			outline.Thickness = 3.5
+		end
+	end
 	if badge then
 		local tag = new("Frame", {
 			AnchorPoint = Vector2.new(1, 0),
@@ -3335,7 +3393,7 @@ local function renderStore()
 	end)
 
 	sectionTitle("BOOSTS  (buy again to add more time)", 1)
-	local boosts = gridSection(2, UDim2.new(0.5, -6, 0, 172))
+	local boosts = gridSection(2, UDim2.new(0.5, -6, 0, 172), 28)
 	for i, product in ipairs(Config.Products) do
 		if product.boost then
 			local left = boostTimeLeft(product.boost)
@@ -3345,7 +3403,7 @@ local function renderStore()
 	end
 
 	sectionTitle("REBIRTH FASTER", 3)
-	local rebirthGrid = gridSection(4, UDim2.new(0.5, -6, 0, 172))
+	local rebirthGrid = gridSection(4, UDim2.new(0.5, -6, 0, 172), 28)
 	for i, product in ipairs(Config.Products) do
 		if product.levels or product.rebirth then
 			storeCard(rebirthGrid, i, product, false, STORE_ACCENTS.rebirth)
@@ -3353,7 +3411,7 @@ local function renderStore()
 	end
 
 	sectionTitle("SEASON PASSES  -  " .. Config.Season.name, 5)
-	local seasonGrid = gridSection(6, UDim2.new(0.5, -6, 0, 172))
+	local seasonGrid = gridSection(6, UDim2.new(0.5, -6, 0, 172), 28)
 	for i, product in ipairs(Config.Products) do
 		if product.seasonPass then
 			local owned = (product.seasonPass == "premium" and (state.season.premium or state.season.mystic))
@@ -3370,7 +3428,7 @@ local function renderStore()
 	end
 
 	sectionTitle("GAME PASSES  (yours forever)", 7)
-	local passes = gridSection(8, UDim2.new(0.5, -6, 0, 172))
+	local passes = gridSection(8, UDim2.new(0.5, -6, 0, 172), 28)
 	for i, pass in ipairs(Config.GamePasses) do
 		storeCard(passes, i, pass, state.passes[pass.key] == true, STORE_ACCENTS.pass)
 	end
