@@ -270,7 +270,13 @@ local Instance = {
 		elseif className == "Humanoid" then
 			obj.Health = 100
 			obj.MaxHealth = 100
-			obj.TakeDamage = function(self, d) self.Health = math.max(0, self.Health - d) end
+			obj.TakeDamage = function(self, d)
+				self.Health = math.max(0, self.Health - d)
+				for _, h in ipairs(handlers(self.HealthChanged)) do
+					h(self.Health)
+				end
+			end
+			obj.WalkSpeed = 16
 		end
 		table.insert(created, obj)
 		return obj
@@ -280,6 +286,7 @@ local Instance = {
 local playersList = {}
 local PlayersService = newMock("Players")
 PlayersService.GetPlayers = function() return table.clone(playersList) end
+PlayersService.GetNameFromUserIdAsync = function(_, id) return "User" .. tostring(id) end
 PlayersService.GetPlayerByUserId = function(_, id)
 	for _, p in ipairs(playersList) do
 		if p.UserId == id then return p end
@@ -294,7 +301,22 @@ local function deepcopy(t)
 	for k, v in pairs(t) do c[k] = deepcopy(v) end
 	return c
 end
+local orderedData = {} -- [storeName] = { [key] = value }
 local DataStoreService = newMock("DataStoreService")
+DataStoreService.GetOrderedDataStore = function(_, name)
+	orderedData[name] = orderedData[name] or {}
+	local data = orderedData[name]
+	return {
+		SetAsync = function(_, key, value) data[key] = value end,
+		GetSortedAsync = function(_, ascending, size)
+			local list = {}
+			for k, v in pairs(data) do table.insert(list, { key = k, value = v }) end
+			table.sort(list, function(a, b) if ascending then return a.value < b.value end return a.value > b.value end)
+			while #list > size do table.remove(list) end
+			return { GetCurrentPage = function() return list end }
+		end,
+	}
+end
 DataStoreService.GetDataStore = function()
 	return {
 		GetAsync = function(_, key) return deepcopy(presetData[key]) end,
@@ -307,6 +329,8 @@ local prompts = {}
 MarketplaceService.PromptGamePassPurchase = function(_, p, id) table.insert(prompts, { "pass", p, id }) end
 MarketplaceService.PromptProductPurchase = function(_, p, id) table.insert(prompts, { "product", p, id }) end
 MarketplaceService.UserOwnsGamePassAsync = function() return false end
+local fakePrices = {}
+MarketplaceService.GetProductInfo = function(_, id) return { PriceInRobux = fakePrices[id] } end
 
 local function encode(v)
 	if type(v) ~= "table" then return tostring(v) end
@@ -323,6 +347,15 @@ local function encode(v)
 end
 local HttpService = newMock("HttpService")
 HttpService.JSONEncode = function(_, v) return encode(v) end
+local tweens = {}
+local TweenServiceFake = newMock("TweenService")
+TweenServiceFake.Create = function(_, target, info, props)
+	table.insert(tweens, { target = target, props = props })
+	local tw = newMock("Tween")
+	tw.Play = function() end
+	tw.Cancel = function() end
+	return tw
+end
 local ReplicatedStorage = newMock("ReplicatedStorage")
 ReplicatedStorage.Name = "ReplicatedStorage"
 local services = {
@@ -331,6 +364,7 @@ local services = {
 	MarketplaceService = MarketplaceService,
 	ReplicatedStorage = ReplicatedStorage,
 	HttpService = HttpService,
+	TweenService = TweenServiceFake,
 }
 local game = newMock("game")
 game.GetService = function(_, name)

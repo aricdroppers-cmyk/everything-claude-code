@@ -2194,6 +2194,26 @@ local function renderQuests()
 end
 
 ---------------------------------------------------------------------------
+-- PRICES: always show what Roblox will really charge
+---------------------------------------------------------------------------
+local function priceOf(item)
+	return (state and state.prices and state.prices[item.key]) or item.price
+end
+
+local function saleOn(item)
+	local now = state and state.serverTime and (state.serverTime + (os.clock() - stateReceivedAt)) or nil
+	return Config.SaleActive(item, now)
+end
+
+-- "R$ 800" or "R$ <s>1000</s> 800" when a sale is on (RichText)
+local function priceText(item)
+	if saleOn(item) then
+		return string.format('R$ <s>%d</s>  %d', item.originalPrice, priceOf(item))
+	end
+	return "R$ " .. priceOf(item)
+end
+
+---------------------------------------------------------------------------
 -- SEASON PASS PANEL
 ---------------------------------------------------------------------------
 local TRACK_COLORS = {
@@ -2280,8 +2300,9 @@ local function renderSeason()
 	local premium = Config.GetProductByKey("SeasonPremium")
 	local mystic = Config.GetProductByKey("SeasonMystic")
 	passButton(0, "SeasonPremium", season.premium or season.mystic,
-		(season.premium or season.mystic) and "PREMIUM" or ("PREMIUM  R$" .. premium.price), TRACK_COLORS.premium)
-	passButton(0.33, "SeasonMystic", season.mystic, season.mystic and "MYSTIC" or ("MYSTIC  R$" .. mystic.price), TRACK_COLORS.mystic)
+		(season.premium or season.mystic) and "PREMIUM" or ("PREMIUM  R$" .. priceOf(premium)), TRACK_COLORS.premium)
+	passButton(0.33, "SeasonMystic", season.mystic, season.mystic and "MYSTIC"
+		or ("MYSTIC  R$" .. priceOf(mystic) .. (saleOn(mystic) and ("  " .. mystic.saleLabel) or "")), TRACK_COLORS.mystic)
 	local canPrestige = season.prestige < cfg.maxPrestige and tier >= cfg.tiers + cfg.prestigeExtraTiers
 	local prestigeButton = button({
 		Position = UDim2.new(0.66, 14, 0, 82),
@@ -2376,6 +2397,218 @@ local function renderSeason()
 end
 
 ---------------------------------------------------------------------------
+-- DAILY LOGIN STREAK (gift button + popup)
+---------------------------------------------------------------------------
+local dailyButton = button({
+	Position = UDim2.new(0, 12, 0, 60),
+	Size = UDim2.new(0, 108, 0, 42),
+	Text = "DAILY",
+	BackgroundColor3 = THEME.bg,
+	TextColor3 = THEME.gold,
+	MaxTextSize = 17,
+	Parent = gui,
+})
+stroke(dailyButton, THEME.gold, 2, 0.15)
+local dailyDot = new("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.new(1, -4, 0, 4),
+	Size = UDim2.new(0, 20, 0, 20),
+	BackgroundColor3 = THEME.danger,
+	Visible = false,
+	Parent = dailyButton,
+})
+corner(dailyDot, 10)
+text({ Size = UDim2.fromScale(1, 1), Text = "!", Font = Enum.Font.GothamBlack, TextXAlignment = Enum.TextXAlignment.Center, Parent = dailyDot })
+
+local dailyPopup = new("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.fromScale(0.5, 0.5),
+	Size = UDim2.new(0, 600, 0, 330),
+	BackgroundColor3 = THEME.panel,
+	Visible = false,
+	ZIndex = 45,
+	Parent = gui,
+})
+new("UISizeConstraint", { MaxSize = Vector2.new(600, 330), Parent = dailyPopup })
+corner(dailyPopup, 16)
+stroke(dailyPopup, THEME.gold, 3, 0)
+local dailyContent = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Parent = dailyPopup })
+
+-- What a day's rewards will be for a given streak (same math as the server)
+local function dailyPreview(streak)
+	local days = #Config.DailyRewards
+	local dayIndex = (streak - 1) % days + 1
+	local week = math.floor((streak - 1) / days)
+	local mult = math.min(Config.DailyMaxMultiplier, 1 + Config.DailyWeekBonus * week)
+	local list = {}
+	for _, reward in ipairs(Config.DailyRewards[dayIndex]) do
+		local r = table.clone(reward)
+		if r.amount then
+			r.amount = math.max(1, math.floor(r.amount * (r.perLevel and state.level or 1) * mult + 0.5))
+		end
+		if r.minutes then
+			r.minutes = math.floor(r.minutes * mult + 0.5)
+		end
+		table.insert(list, r)
+	end
+	return list, dayIndex, mult
+end
+
+local function renderDaily()
+	for _, child in ipairs(dailyContent:GetChildren()) do
+		child:Destroy()
+	end
+	local login = state.login
+	local _, todayIndex, mult = dailyPreview(login.streak)
+	text({
+		Position = UDim2.new(0, 18, 0, 12),
+		Size = UDim2.new(0.6, 0, 0, 30),
+		Text = "DAILY REWARDS",
+		Font = Enum.Font.GothamBlack,
+		TextColor3 = THEME.gold,
+		MaxTextSize = 26,
+		Parent = dailyContent,
+	})
+	text({
+		Position = UDim2.new(0, 18, 0, 44),
+		Size = UDim2.new(1, -36, 0, 18),
+		Text = string.format("Streak: %d day%s   |   Best: %d   |   Week bonus x%.2f   |   Miss a day and it resets!",
+			login.streak, login.streak == 1 and "" or "s", math.max(login.best, login.streak), mult),
+		Font = Enum.Font.GothamMedium,
+		TextColor3 = THEME.muted,
+		MaxTextSize = 14,
+		Parent = dailyContent,
+	})
+	local close = button({
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -12, 0, 12),
+		Size = UDim2.new(0, 34, 0, 34),
+		Text = "X",
+		BackgroundColor3 = THEME.danger,
+		Parent = dailyContent,
+	})
+	close.MouseButton1Click:Connect(function()
+		dailyPopup.Visible = false
+	end)
+
+	-- the 7 days of this cycle
+	local cycleStart = login.streak - todayIndex + 1
+	local row = new("Frame", { Position = UDim2.new(0, 14, 0, 72), Size = UDim2.new(1, -28, 0, 170), BackgroundTransparency = 1, Parent = dailyContent })
+	new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), Parent = row })
+	for d = 1, #Config.DailyRewards do
+		local isToday = d == todayIndex
+		local done = d < todayIndex or (isToday and not login.canClaim)
+		local rewards = dailyPreview(cycleStart + d - 1)
+		local tile = new("Frame", {
+			Size = UDim2.new(1 / #Config.DailyRewards, -6, 1, 0),
+			BackgroundColor3 = done and Color3.fromRGB(30, 80, 50) or (isToday and THEME.cardHover or THEME.card),
+			LayoutOrder = d,
+			Parent = row,
+		})
+		corner(tile, 10)
+		stroke(tile, isToday and THEME.gold or (d == #Config.DailyRewards and Color3.fromRGB(255, 90, 220) or THEME.muted),
+			isToday and 3 or 1.5, isToday and 0 or 0.5)
+		text({
+			Position = UDim2.new(0, 4, 0, 6),
+			Size = UDim2.new(1, -8, 0, 18),
+			Text = done and "DONE" or ("DAY " .. d),
+			Font = Enum.Font.GothamBlack,
+			TextColor3 = done and THEME.good or (isToday and THEME.gold or THEME.text),
+			TextXAlignment = Enum.TextXAlignment.Center,
+			MaxTextSize = 15,
+			Parent = tile,
+		})
+		local lines = {}
+		for _, r in ipairs(rewards) do
+			table.insert(lines, (Config.DescribeReward(r, 0)))
+		end
+		text({
+			Position = UDim2.new(0, 4, 0, 30),
+			Size = UDim2.new(1, -8, 1, -36),
+			Text = table.concat(lines, "\n"),
+			Font = Enum.Font.GothamBold,
+			TextColor3 = THEME.text,
+			TextWrapped = true,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			TextYAlignment = Enum.TextYAlignment.Top,
+			MaxTextSize = 12,
+			Parent = tile,
+		})
+	end
+
+	local claim = button({
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -16),
+		Size = UDim2.new(0, 280, 0, 48),
+		Text = login.canClaim and ("CLAIM DAY " .. todayIndex .. "!") or ("NEXT REWARD IN " .. formatTime(secondsLeft(login.nextIn))),
+		BackgroundColor3 = login.canClaim and Color3.fromRGB(40, 170, 90) or Color3.fromRGB(60, 65, 75),
+		TextColor3 = login.canClaim and THEME.text or THEME.muted,
+		MaxTextSize = 18,
+		Parent = dailyContent,
+	})
+	claim.MouseButton1Click:Connect(function()
+		if login.canClaim then
+			Action:FireServer("ClaimDaily")
+		end
+	end)
+end
+
+local function openDaily()
+	if not state or not state.login then
+		return
+	end
+	dailyPopup.Visible = true
+	renderDaily()
+end
+dailyButton.MouseButton1Click:Connect(function()
+	if dailyPopup.Visible then
+		dailyPopup.Visible = false
+	else
+		openDaily()
+	end
+end)
+
+---------------------------------------------------------------------------
+-- GETTING HIT: red flash + small camera shake
+---------------------------------------------------------------------------
+local hurtFlash = new("Frame", {
+	Size = UDim2.fromScale(1, 1),
+	BackgroundColor3 = Color3.fromRGB(255, 30, 30),
+	BackgroundTransparency = 1,
+	ZIndex = 30,
+	Parent = gui,
+})
+local shakeUntil = 0
+local function watchHealth(character)
+	local humanoid = character:WaitForChild("Humanoid", 10)
+	if not humanoid then
+		return
+	end
+	local lastHealth = humanoid.Health
+	humanoid.HealthChanged:Connect(function(health)
+		if health < lastHealth - 0.5 then
+			hurtFlash.BackgroundTransparency = 0.6
+			TweenService:Create(hurtFlash, TweenInfo.new(0.35), { BackgroundTransparency = 1 }):Play()
+			shakeUntil = os.clock() + 0.22
+		end
+		lastHealth = health
+	end)
+end
+if player.Character then
+	task.spawn(watchHealth, player.Character)
+end
+player.CharacterAdded:Connect(watchHealth)
+RunService:BindToRenderStep("SalvageShake", Enum.RenderPriority.Camera.Value + 1, function()
+	if os.clock() < shakeUntil then
+		local camera = workspace.CurrentCamera
+		if camera then
+			local r = 0.25
+			camera.CFrame = camera.CFrame * CFrame.new((math.random() - 0.5) * r, (math.random() - 0.5) * r, 0)
+		end
+	end
+end)
+
+---------------------------------------------------------------------------
 -- REBIRTH PANEL
 ---------------------------------------------------------------------------
 local function bonusLine(b)
@@ -2388,7 +2621,7 @@ local function robuxButton(parent, position, size, key, label, color)
 	local b = button({
 		Position = position,
 		Size = size,
-		Text = label .. "  R$" .. product.price,
+		Text = label .. "  R$" .. priceOf(product),
 		BackgroundColor3 = color,
 		MaxTextSize = 14,
 		Parent = parent,
@@ -2605,7 +2838,8 @@ local function storeCard(parent, order, item, owned, accent, extra, badge)
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.new(0.5, 0, 1, -8),
 		Size = UDim2.new(1, -20, 0, 34),
-		Text = owned and "OWNED" or ("R$ " .. item.price),
+		Text = owned and "OWNED" or priceText(item),
+		RichText = true,
 		BackgroundColor3 = owned and Color3.fromRGB(60, 65, 75) or Color3.fromRGB(40, 170, 90),
 		TextColor3 = owned and THEME.muted or THEME.text,
 		MaxTextSize = 16,
@@ -2647,8 +2881,14 @@ local function renderStore()
 		if product.seasonPass then
 			local owned = (product.seasonPass == "premium" and (state.season.premium or state.season.mystic))
 				or (product.seasonPass == "mystic" and state.season.mystic)
-			storeCard(seasonGrid, i, product, owned, product.seasonPass == "mystic" and STORE_ACCENTS.season or STORE_ACCENTS.pass, nil,
-				product.seasonPass == "mystic" and "BEST VALUE" or nil)
+			local extra, badge = nil, nil
+			if product.seasonPass == "mystic" then
+				badge = saleOn(product) and product.saleLabel or "BEST VALUE"
+				if saleOn(product) and product.saleEnds and not owned then
+					extra = "\nLaunch sale ends in " .. formatTime(product.saleEnds - (state.serverTime + (os.clock() - stateReceivedAt)))
+				end
+			end
+			storeCard(seasonGrid, i, product, owned, product.seasonPass == "mystic" and STORE_ACCENTS.season or STORE_ACCENTS.pass, extra, badge)
 		end
 	end
 
@@ -2925,6 +3165,7 @@ local function playSound(id, volume, pitch)
 	end)
 end
 local SOUND_FOR = {
+	dailyClaimed = { 0.6, 1.2 },
 	levelup = { 0.6, 1.3 },
 	ship = { 0.7, 0.8 },
 	hatch = { 0.6, 1.1 },
@@ -2988,6 +3229,19 @@ Notify.OnClientEvent:Connect(function(msg)
 		toast(msg.text, THEME.accent, 3)
 	elseif kind == "purchase" then
 		toast(msg.text, THEME.good, 5)
+	elseif kind == "dailyAvailable" then
+		task.delay(1.5, openDaily)
+	elseif kind == "dailyClaimed" then
+		showSplash("DAY " .. msg.streak .. " STREAK!", THEME.gold)
+		for _, r in ipairs(msg.rewards) do
+			local label, color = Config.DescribeReward(r, 0)
+			toast("Daily reward: " .. label, color, 5)
+		end
+		task.delay(0.3, function()
+			if dailyPopup.Visible and state then
+				renderDaily()
+			end
+		end)
 	elseif kind == "charm" then
 		local charm = Config.GetCharm(msg.id)
 		if charm then
@@ -3087,6 +3341,11 @@ while true do
 	refreshBanner()
 	updateBoostPills()
 	updateArenaLook()
+	dailyDot.Visible = state ~= nil and state.login ~= nil and state.login.canClaim
+	if state and state.login and secondsLeft(state.login.nextIn) < -2 then
+		state.login.nextIn = 1e9
+		Action:FireServer("RequestState") -- a new day started while playing
+	end
 	if currentPanel == "Quests" and state then
 		if questTimerLabels.daily and questTimerLabels.daily.Parent then
 			questTimerLabels.daily.Text = "DAILY  -  new quests in " .. formatTime(secondsLeft(state.dailyResetIn))

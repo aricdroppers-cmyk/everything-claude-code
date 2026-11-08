@@ -67,6 +67,26 @@ gets darker the deeper you go.
 - The Leviathan gives 50,000 coins, 20 Pearls, 3 fragments and a 50% chance of
   an Abyss Egg to everyone who hit it.
 
+### Daily login streak
+- Press **DAILY** (top left; a red "!" means a reward is waiting). The popup
+  also opens by itself when you join.
+- 7 daily rewards that keep getting better:
+  - Day 1: coins (multiplied by your level)
+  - Day 2: 2 Tide Pool Eggs
+  - Day 3: 10 Pearls
+  - Day 4: a luck boost and coins
+  - Day 5: 2 Kelp Eggs
+  - Day 6: Pearls and a coin boost
+  - Day 7: a season Charm, 30 Pearls and a 2x Everything boost
+- After each full week the rewards grow by 25%, up to x2.
+- **Miss a day and the streak resets to day 1.** Days start at midnight UTC.
+
+### Global leaderboards
+- Three boards stand behind the spawn: **Most Rebirths**, **Most Levels
+  Gained** (lifetime, so rebirths don't wipe it) and **Top Hunters**.
+- They cover every server, all time, and refresh every 2 minutes. Scores are
+  uploaded with each save.
+
 ### Quests
 - **QUESTS** has 3 daily quests (new at midnight UTC) and 2 weekly quests (new
   on Monday).
@@ -153,10 +173,24 @@ gets darker the deeper you go.
 | +3 Levels | Developer product | 49 R$ |
 | Instant Rebirth | Developer product | 99 R$ |
 | Premium Season Pass | Developer product | 400 R$ |
-| Mystic Season Pass | Developer product | 1000 R$ |
+| Mystic Season Pass | Developer product | **800 R$** (launch sale, shown as "20% OFF" 1000) |
 
 The season passes are **developer products**, not game passes, because game
 passes last forever and a season pass has to be sold again each season.
+
+### The Mystic launch sale
+The game shows Mystic as ~~1000~~ **800 R$, 20% OFF**, with a countdown, until
+`saleEnds` in the config (currently 31 Dec 2026). After that the sale label
+hides itself.
+
+- **Roblox charges whatever price is set in the Creator Dashboard, not the
+  config.** Set the Mystic product to 800 there.
+- When the sale ends, set the dashboard price back to 1000.
+- The game reads the real prices from Roblox and shows those. If the config
+  doesn't match, it prints a warning in the Output window.
+- Keep the discount honest: only show "20% off" while it really is a
+  limited-time sale. Advertising a fake original price can break
+  consumer-protection rules (for example in the EU and UK).
 
 ### Making purchases real
 1. In the **Creator Dashboard**, open your experience, then
@@ -190,16 +224,54 @@ Simulated pacing (hauling only, no pets or boosts):
 works out to about 15-25 hours for the full pass, and 50+ hours for both
 prestiges. Tune `Config.Season.xpPerTier` once you see real numbers.
 
+## Saving
+- Progress is saved **every minute** (spread out across players so Roblox's
+  save limits aren't hit). It's also saved when a player leaves, when the
+  server shuts down, and right after trades, rebirths, prestiges and Robux
+  purchases.
+
+## Anti-cheat
+The server watches every character twice a second:
+- **Speed hacks and teleports:** moving faster than the server's WalkSpeed
+  allows (with slack for lag) is caught.
+- **Fly hacks:** rising faster than a jump, or going above the map, is caught.
+
+A caught player is put back where they were and gets a strike. 10 strikes
+within a minute is a kick. Server teleports (portals, going home, rebirth) are
+whitelisted so they never count.
+
+On top of that, the server already:
+- checks distance on every prompt
+- rate-limits remote calls
+- checks hunting-ground levels
+- validates every trade, purchase and click
+
+Settings are in `Config.AntiCheat`. If honest players with bad internet get
+pulled back too often, raise `extraStuds`.
+
+## Combat animations
+None of these need uploaded animations:
+- **Creatures:** they swim with a wiggle (crabs waddle), lunge forward when
+  they bite, flinch when hit, grow in when they spawn, and spin, sink and
+  shrink when they die.
+- **Your character:** your arm swings with each attack (works on R15 and R6
+  characters). Damage numbers pop up over whatever gets hit.
+- **When you're hit:** the screen flashes red and the camera shakes.
+
 ## Testing
 `tests/run.sh` runs the real server **and** the real client inside a fake
 Roblox, with real 3D math. You need the free `luau` command line tool from
-https://github.com/luau-lang/luau/releases. It runs 157 checks:
+https://github.com/luau-lang/luau/releases. It runs about 190 checks:
 - Gameplay: dives, levels, hatching, trading, the season pass (retroactive
   purchases, prestige scaling), quests, rebirth, all 3 Robux rebirth options,
   boosts and receipts (never granted twice), charms and Tide Bottles, portals,
-  enemy AI, weapons, the Leviathan and all 3 random events.
+  enemy AI, weapons, the Leviathan, all 3 random events, the daily streak
+  (including missing a day), autosave, the global leaderboards, live prices
+  and the combat animations.
 - Exploits: remote spam, using prompts from far away, teleporting into
-  hunting grounds you're too low for, trading items you don't have.
+  hunting grounds you're too low for, trading items you don't have, and the
+  anti-cheat (speed hack, fly hack, kick after repeated strikes, no false
+  alarm on portals).
 - The UI: opens every menu, **clicks every button**, and sends every
   notification type to the real client UI, checking for crashes.
 
@@ -209,21 +281,20 @@ Run it again after you change anything.
 - **Nobody has seen it in Roblox yet.** The tests prove the code runs and the
   rules work. They can't show what it looks like, so check colors, sizes and
   layout in Studio, especially on a phone (Studio's device emulator).
-- **Cheaters can still move their own character.** Roblox lets the client
-  control its character's movement. The server now checks distance on every
-  prompt and blocks under-levelled players from hunting grounds, but a
-  teleporting cheater can still reach Tide Bottles faster. A full movement
-  anti-cheat is a separate project.
-- **Combat is simple.** There are no animations: creatures glide toward you and
-  a slash flashes when you swing. Weapon grip angles may need adjusting
-  (`tool.Grip` in the server script).
+- **The anti-cheat is solid but not perfect.** It stops speed, fly and
+  teleport hacks. Small cheats that stay just under the limits (slightly
+  faster walking, noclipping through a wall) can still slip through. No
+  Roblox anti-cheat is perfect, so keep an eye on the Output window for
+  `[Salvage AntiCheat]` lines in live servers.
+- **Animations are done in code, not with uploaded animations.** They look
+  decent but not as smooth as hand-made ones. The arm swing might go the
+  wrong way on some character types: flip the angles in `swingArm` if it
+  looks backwards. Weapon grip angles may also need adjusting (`tool.Grip`).
 - **Balance is a first pass.** Enemy health and damage, weapon damage and
   season XP all need real playtesting. Rebirth pacing was simulated.
 - **Sounds are placeholders.** They use sounds built into Roblox (a sword
   slash and a ping). Upload your own for a polished feel.
-- **Upgrading from Premium to Mystic costs the full 1000 R$.** A cheaper
-  "Premium to Mystic" upgrade product (around 600 R$) would be fairer.
 - **Trade and purchase saving needs session locking** before a big public
   launch.
-- No global leaderboards and no daily login streak yet. Both are cheap to add
-  and good for keeping players coming back.
+- **Leaderboards and saving only work in a published game** with API access
+  turned on. In plain Studio the boards say so.

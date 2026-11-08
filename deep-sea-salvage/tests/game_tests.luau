@@ -55,6 +55,13 @@ local function giveCharacter(p, cf)
 	head.Parent = char
 	local hum = Instance.new("Humanoid")
 	hum.Parent = char
+	local arm = Instance.new("Part")
+	arm.Name = "RightUpperArm"
+	arm.Parent = char
+	local shoulder = Instance.new("Motor6D")
+	shoulder.Name = "RightShoulder"
+	shoulder.C0 = CFrame.new(1, 0.5, 0)
+	shoulder.Parent = arm
 	char.PrimaryPart = hrp
 	p.Character = char
 	local backpack = Instance.new("Backpack")
@@ -89,9 +96,13 @@ presetData["player_2"] = {
 presetData["player_3"] = { coins = 0, level = 3 }
 
 -- boot the server
+Config.AntiCheat.enabled = false -- tests teleport characters around; turned on in its own section
+Config.GetProductByKey("SeasonMystic").id = 777
+fakePrices[777] = 800
 local mainCo = coroutine.create(SERVER)
 local ok, err = coroutine.resume(mainCo)
 check(ok, "server boots: " .. tostring(err))
+Config.GetProductByKey("SeasonMystic").id = 0 -- back to Studio test mode for the purchase tests
 check(coroutine.status(mainCo) == "suspended", "server reaches main loop")
 
 local Players = PlayersService
@@ -529,12 +540,30 @@ for _ = 1, 60 do
 	handlers(tool.Activated)[1]()
 	heartbeat(0.05)
 	runDelayed()
-	if rawget(target, "__destroyed") then
+	if lastNotify(1, "kill") then
 		killed = true
 		break
 	end
 end
 check(killed, "killed an enemy with the spear")
+for _ = 1, 20 do
+	fakeClock += 0.06
+	runSleeping()
+end
+check(rawget(target, "__destroyed") == true, "death animation finishes and removes the creature")
+local swung, numbers = false, 0
+for _, tw in ipairs(tweens) do
+	if rawget(tw.target, "__props") and tw.target.Name == "RightShoulder" and tw.props.C0 then
+		swung = true
+	end
+end
+for _, obj in ipairs(created) do
+	if obj.ClassName == "TextLabel" and tonumber(obj.Text) then
+		numbers += 1
+	end
+end
+check(swung, "attacking swings the character's arm (shoulder C0 tween)")
+check(numbers > 0, "damage numbers pop up (" .. numbers .. ")")
 check(lastNotify(1, "kill") ~= nil, "kill notification")
 check(lastState[1].coins > coinsBeforeKill, "kill gave coins")
 check(hum.Health < 100, "enemies fight back (A health " .. hum.Health .. ")")
@@ -632,10 +661,10 @@ for round = 1, 40 do
 		end
 	end
 end
-local charmId = next(lastState[1].charms)
-check(charmId ~= nil, "got a charm from bottles (opened " .. opened .. ")")
+local charmId = lastState[1].equippedCharms[1]
+check(next(lastState[1].charms) ~= nil, "got a charm from bottles (opened " .. opened .. ")")
+check(charmId ~= nil, "a charm got auto-equipped")
 if charmId then
-	check(table.find(lastState[1].equippedCharms, charmId) ~= nil, "first copy of a charm auto-equips")
 	local multWith = lastState[1].multipliers
 	act(A, "EquipCharm", charmId)
 	check(table.find(lastState[1].equippedCharms, charmId) == nil, "unequip charm")
@@ -716,6 +745,124 @@ for _ in pairs(eventsSeen) do
 end
 check(seenCount >= 1, "random events fire on schedule (" .. seenCount .. " different kinds in 18 min)")
 
+
+-- ======================= ROUND 4: daily streak, leaderboards, autosave, anti-cheat, prices =======================
+check(lastState[1].prices.SeasonMystic == 800, "live Robux price read from Roblox (800)")
+check(Config.SaleActive(Config.GetProductByKey("SeasonMystic"), fakeTime) == true, "Mystic launch sale is running")
+check(Config.SaleActive(Config.GetProductByKey("SeasonMystic"), 1798761540 + 1) == false, "sale switches itself off after its end date")
+
+-- daily streak
+local H = makePlayer(8, "Hana")
+presetData["player_8"] = { coins = 0, level = 4 }
+join(H)
+check(lastNotify(8, "dailyAvailable") ~= nil, "daily reward offered on join")
+check(lastState[8].login.canClaim == true and lastState[8].login.streak == 1, "day 1 ready")
+local coins0 = lastState[8].coins
+act(H, "ClaimDaily")
+check(lastNotify(8, "dailyClaimed") and lastNotify(8, "dailyClaimed").streak == 1, "claimed day 1")
+check(lastState[8].coins - coins0 == 300 * lastState[8].level, "day 1 = 300 coins x level")
+clearNotes()
+act(H, "ClaimDaily")
+check(lastNotify(8, "error") ~= nil, "can't claim twice in a day")
+local function nextDay(days)
+	fakeTime += 86400 * (days or 1)
+end
+for d = 2, 8 do
+	nextDay()
+	act(H, "ClaimDaily")
+	check(lastNotify(8, "dailyClaimed").streak == d, "streak day " .. d)
+end
+check(next(lastState[8].charms) ~= nil, "day 7 gives a season charm")
+check(lastNotify(8, "dailyClaimed").multiplier == 1.25, "week 2 rewards x1.25")
+nextDay(2) -- missed a day
+act(H, "ClaimDaily")
+check(lastNotify(8, "dailyClaimed").streak == 1, "missing a day resets the streak")
+check(lastState[8].login.best == 8, "best streak remembered")
+
+-- autosave every minute + global leaderboards
+savedData["player_8"] = nil
+for _ = 1, 45 do
+	tick(2)
+end
+check(savedData["player_8"] ~= nil, "autosave within ~a minute")
+check(orderedData["LB_Levels_v1"] and (orderedData["LB_Levels_v1"]["3"] or 0) >= 5, "Cara's lifetime levels on the global leaderboard (" .. tostring(orderedData["LB_Levels_v1"] and orderedData["LB_Levels_v1"]["3"]) .. ")")
+check(orderedData["LB_Rebirths_v1"] and orderedData["LB_Rebirths_v1"]["5"] == 1, "Eli's rebirth on the rebirth leaderboard")
+for _ = 1, 6 do
+	tick(25)
+end
+local boardText = ""
+for _, obj in ipairs(created) do
+	if obj.ClassName == "TextLabel" and type(obj.Text) == "string" and string.find(obj.Text, "#1") then
+		boardText = obj.Text
+	end
+end
+check(boardText ~= "", "island boards show the top players (" .. boardText .. ")")
+
+-- anti-cheat (Finn leaves first: there are only 6 bays)
+local function leave(p)
+	local i = table.find(playersList, p)
+	if i then
+		table.remove(playersList, i)
+	end
+	p.Parent = nil
+	for _, h in ipairs(handlers(Players.PlayerRemoving)) do
+		h(p)
+	end
+end
+leave(F)
+local gotKicked = makePlayer(99, "Extra")
+local fullBays = {}
+for id = 100, 105 do
+	local extra = makePlayer(id, "Extra" .. id)
+	join(extra)
+	table.insert(fullBays, extra)
+end
+local kickedExtras = 0
+for _, extra in ipairs(fullBays) do
+	if rawget(extra, "__props").kicked then
+		kickedExtras += 1
+	end
+end
+check(kickedExtras >= 1, "a 7th player is told the server is full (" .. kickedExtras .. " turned away)")
+for _, extra in ipairs(fullBays) do
+	leave(extra)
+end
+Config.AntiCheat.enabled = true
+local G = makePlayer(9, "Gus")
+presetData["player_9"] = { coins = 0, level = 3 }
+join(G)
+local ghrp = G.Character.PrimaryPart
+ghrp.CFrame = CFrame.new(0, 5, 0)
+for _ = 1, 4 do
+	tick(0.5) -- learn where Gus is (and let the join teleport grace run out)
+end
+local home = ghrp.CFrame.Position
+ghrp.CFrame = CFrame.new(home + Vector3.new(4, 0, 0)) -- normal walking
+tick(0.5)
+check((ghrp.CFrame.Position - (home + Vector3.new(4, 0, 0))).Magnitude < 0.1, "normal walking is fine")
+local before = ghrp.CFrame.Position
+ghrp.CFrame = CFrame.new(before + Vector3.new(300, 0, 0)) -- speed hack / teleport
+tick(0.5)
+check((ghrp.CFrame.Position - before).Magnitude < 1, "teleport/speed hack is pulled back")
+tick(0.6)
+ghrp.CFrame = CFrame.new(before + Vector3.new(0, 400, 0)) -- fly hack
+tick(0.5)
+check(ghrp.CFrame.Position.Y < 100, "fly hack is pulled back down")
+-- portals and going home are server teleports and must NOT be flagged
+tick(0.6)
+fire(portal("Sunlit"), G)
+local inArena = ghrp.CFrame.Position
+tick(0.5)
+check((ghrp.CFrame.Position - inArena).Magnitude < 0.1, "portal teleport is not treated as cheating")
+check(rawget(G, "__props").kicked == nil, "not kicked for a few strikes")
+for _ = 1, 12 do
+	tick(0.6)
+	ghrp.CFrame = CFrame.new(ghrp.CFrame.Position + Vector3.new(500, 0, 0))
+end
+tick(0.6)
+check(rawget(G, "__props").kicked ~= nil, "kicked after too many strikes in a minute")
+Config.AntiCheat.enabled = false
+
 -- ======================= CLIENT: run the real UI against the real server =======================
 clientPlayer = A
 PlayersService.LocalPlayer = A
@@ -758,7 +905,7 @@ local function isLive(obj)
 	return false
 end
 
-local menus = { "FLEET", "SHOP", "PETS", "LOGBOOK", "QUESTS", "SEASON", "STORE", "REBIRTH", "TRADE" }
+local menus = { "FLEET", "SHOP", "PETS", "LOGBOOK", "QUESTS", "SEASON", "STORE", "REBIRTH", "TRADE", "DAILY" }
 local clicked = 0
 for _, name in ipairs(menus) do
 	local menuButton = findButton(name)
@@ -828,6 +975,12 @@ local awesome = findButton("AWESOME!")
 if awesome then
 	click(awesome, "hatch continue")
 end
+
+-- getting hit: flash + shake handler
+local aHum = A.Character:FindFirstChildOfClass("Humanoid")
+aHum.Health = 100
+aHum:TakeDamage(10)
+check(#clientErrors == 0, "hurt flash runs without errors")
 
 -- render the pet followers and arena lighting for a few frames
 remotesFolder = ReplicatedStorage:FindFirstChild("SalvageRemotes")

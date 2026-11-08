@@ -397,7 +397,7 @@ local function buildIsland()
 
 	for _, pos in ipairs({
 		Vector3.new(38, 3.6, 10), Vector3.new(-40, 3.6, 18),
-		Vector3.new(-15, 3.6, 42), Vector3.new(30, 3.6, 38), Vector3.new(-45, 3.6, -8),
+		Vector3.new(-48, 3.6, 30), Vector3.new(20, 3.6, -48), Vector3.new(-45, 3.6, -8),
 	}) do
 		buildPalm(pos)
 	end
@@ -873,7 +873,7 @@ local function defaultData()
 		parts = {},
 		ships = {},
 		pity = 0,
-		stats = { hauls = 0, fragments = 0, breaches = 0, hatched = 0, trades = 0, kills = 0 },
+		stats = { hauls = 0, fragments = 0, breaches = 0, hatched = 0, trades = 0, kills = 0, levelsGained = 0 },
 		level = 1,
 		bestLevel = 1,
 		xp = 0,
@@ -893,6 +893,7 @@ local function defaultData()
 		testPasses = {}, -- passes "bought" in Studio test mode
 		charms = {}, -- [charmId] = how many you own
 		equippedCharms = {}, -- charm ids
+		login = { claimedDay = -1, streak = 0, best = 0 }, -- daily login streak
 	}
 end
 
@@ -1177,6 +1178,23 @@ local function questList(scope)
 	return list
 end
 
+local LivePrices = {} -- [key] = the real Robux price from Roblox (filled at startup)
+
+local function today()
+	return math.floor(os.time() / 86400)
+end
+
+local function loginStatus(data)
+	local login = data.login
+	local day = today()
+	local canClaim = login.claimedDay ~= day
+	local streak = login.streak
+	if canClaim then
+		streak = (login.claimedDay == day - 1) and login.streak + 1 or 1
+	end
+	return { canClaim = canClaim, streak = streak, best = login.best, nextIn = 86400 - os.time() % 86400 }
+end
+
 local function pushState(session)
 	if not session.active then
 		return
@@ -1233,6 +1251,9 @@ local function pushState(session)
 		season = data.season,
 		boostsLeft = boostsLeft,
 		passes = session.passes or {},
+		login = loginStatus(data),
+		prices = LivePrices,
+		serverTime = os.time(),
 		studio = RunService:IsStudio(),
 	})
 end
@@ -1354,7 +1375,7 @@ end
 local startDive
 
 -- defined further down
-local questProgress, addSeasonXP, giveWeaponTool, giveRandomCharm, isNear
+local questProgress, addSeasonXP, giveWeaponTool, giveRandomCharm, isNear, writeLeaderboards
 
 local function addXP(session, amount, raw)
 	local data = session.data
@@ -1363,6 +1384,7 @@ local function addXP(session, amount, raw)
 	while data.level < Config.MaxLevel and data.xp >= Config.XPToNext(data.level) do
 		data.xp -= Config.XPToNext(data.level)
 		data.level += 1
+		data.stats.levelsGained += 1
 		leveled = true
 		local firstTime = data.level > data.bestLevel
 		data.bestLevel = math.max(data.bestLevel, data.level)
@@ -1568,10 +1590,19 @@ local function addFleetEntry(session, index)
 	startDive(session, index)
 end
 
-local function teleportToBay(session)
+-- Every server teleport goes through here so the anti-cheat doesn't flag it
+local function safeTeleport(session, cf)
 	local character = session.player.Character
-	if character and session.bay then
-		character:PivotTo(session.bay.cf * CFrame.new(0, 4, 6))
+	if character then
+		session.acGraceUntil = os.clock() + 2
+		session.acLast = nil
+		character:PivotTo(cf)
+	end
+end
+
+local function teleportToBay(session)
+	if session.bay then
+		safeTeleport(session, session.bay.cf * CFrame.new(0, 4, 6))
 	end
 end
 
@@ -2038,6 +2069,10 @@ local function giveReward(session, r)
 		if #data.equipped < maxEquipped(session) then
 			table.insert(data.equipped, uid)
 		end
+	elseif r.kind == "charm" then
+		for _ = 1, r.amount or 1 do
+			giveRandomCharm(session)
+		end
 	elseif r.kind == "weapon" and Config.GetWeapon(r.id) then
 		if table.find(data.weapons, r.id) then
 			data.pearls += 50 -- already own it
@@ -2045,6 +2080,38 @@ local function giveReward(session, r)
 			table.insert(data.weapons, r.id)
 		end
 	end
+end
+
+local function claimDaily(session)
+	local data = session.data
+	local status = loginStatus(data)
+	if not status.canClaim then
+		notify(session.player, { kind = "error", text = "You already claimed today's reward. Come back tomorrow!" })
+		return
+	end
+	data.login.claimedDay = today()
+	data.login.streak = status.streak
+	data.login.best = math.max(data.login.best, status.streak)
+	local days = #Config.DailyRewards
+	local dayIndex = (status.streak - 1) % days + 1
+	local week = math.floor((status.streak - 1) / days)
+	local mult = math.min(Config.DailyMaxMultiplier, 1 + Config.DailyWeekBonus * week)
+	local given = {}
+	for _, reward in ipairs(Config.DailyRewards[dayIndex]) do
+		local r = table.clone(reward)
+		if r.amount then
+			r.amount = math.max(1, math.floor(r.amount * (r.perLevel and data.level or 1) * mult + 0.5))
+		end
+		if r.minutes then
+			r.minutes = math.floor(r.minutes * mult + 0.5)
+		end
+		r.perLevel = nil
+		giveReward(session, r)
+		table.insert(given, r)
+	end
+	notify(session.player, { kind = "dailyClaimed", streak = status.streak, day = dayIndex, rewards = given, multiplier = mult })
+	pushState(session)
+	task.spawn(saveData, session)
 end
 
 local function seasonTracks(season)
@@ -2806,10 +2873,7 @@ local function buildPortal(arena, angle)
 			notify(who, { kind = "error", text = "You need Level " .. def.level .. " to hunt in " .. zone.name .. "." })
 			return
 		end
-		local character = who.Character
-		if character then
-			character:PivotTo(arenaSpawnCF(arena))
-		end
+		safeTeleport(session, arenaSpawnCF(arena))
 	end)
 end
 
@@ -2861,6 +2925,7 @@ local function spawnEnemy(arena, enemyId)
 		lastAttack = 0,
 		damageBy = {},
 		phase = rng:NextNumber(0, 6),
+		spawnedAt = os.clock(),
 	}
 	local spot = arena.center + Vector3.new(rng:NextNumber(-60, 60), 0, rng:NextNumber(-70, 40))
 	enemy.home = spot
@@ -2911,7 +2976,14 @@ local function spawnEnemy(arena, enemyId)
 	return enemy
 end
 
-local function removeEnemy(enemy)
+-- Model:ScaleTo is a newer Roblox API; if it's missing we just skip scaling
+local function scaleModel(model, scale)
+	pcall(function()
+		model:ScaleTo(scale)
+	end)
+end
+
+local function removeEnemy(enemy, animateDeath)
 	enemy.alive = false
 	local index = table.find(enemy.arena.enemies, enemy)
 	if index then
@@ -2921,7 +2993,59 @@ local function removeEnemy(enemy)
 	if index then
 		table.remove(Enemies, index)
 	end
-	enemy.model:Destroy()
+	if not animateDeath then
+		enemy.model:Destroy()
+		return
+	end
+	-- death: spin, sink and shrink away
+	local gui = enemy.root:FindFirstChildOfClass("BillboardGui")
+	if gui then
+		gui:Destroy()
+	end
+	local startCF = enemy.root.CFrame
+	task.spawn(function()
+		local steps = 12
+		for i = 1, steps do
+			local p = i / steps
+			if not enemy.model.Parent then
+				return
+			end
+			enemy.root.CFrame = startCF * CFrame.new(0, -p * 3, 0) * CFrame.Angles(0, p * math.pi * 2, p * 0.8)
+			scaleModel(enemy.model, math.max(0.05, 1 - p * 0.9))
+			task.wait(0.05)
+		end
+		enemy.model:Destroy()
+	end)
+end
+
+-- Floating damage number
+local function damageNumber(position, amount, color)
+	local anchor = makePart({
+		Size = Vector3.new(0.2, 0.2, 0.2),
+		CFrame = CFrame.new(position + Vector3.new(rng:NextNumber(-1.5, 1.5), 2, rng:NextNumber(-1.5, 1.5))),
+		Transparency = 1,
+		CanCollide = false,
+		CanQuery = false,
+	})
+	local gui = Instance.new("BillboardGui")
+	gui.Size = UDim2.new(0, 90, 0, 36)
+	gui.AlwaysOnTop = true
+	gui.MaxDistance = 80
+	gui.Parent = anchor
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBlack
+	label.TextScaled = true
+	label.TextColor3 = color
+	label.TextStrokeTransparency = 0.2
+	label.Text = Config.FormatNumber(amount)
+	label.Parent = gui
+	TweenService:Create(anchor, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { CFrame = anchor.CFrame + Vector3.new(0, 4, 0) }):Play()
+	TweenService:Create(label, TweenInfo.new(0.8), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+	task.delay(0.85, function()
+		anchor:Destroy()
+	end)
 end
 
 local function burst(position, color, size)
@@ -3012,7 +3136,7 @@ local function killEnemy(enemy)
 		announce("THE LEVIATHAN HAS BEEN SLAIN!", Color3.fromRGB(60, 255, 230))
 		enemy.arena.nextBoss = os.clock() + Config.BossInterval
 	end
-	removeEnemy(enemy)
+	removeEnemy(enemy, true)
 end
 
 local function damageEnemy(enemy, session, amount)
@@ -3020,6 +3144,8 @@ local function damageEnemy(enemy, session, amount)
 		return
 	end
 	enemy.hp -= amount
+	enemy.hitAt = os.clock()
+	damageNumber(enemy.root.Position + Vector3.new(0, enemy.hover * 0.3, 0), math.floor(amount), Color3.fromRGB(255, 230, 120))
 	enemy.damageBy[session.player] = (enemy.damageBy[session.player] or 0) + amount
 	enemy.fill.Size = UDim2.fromScale(math.clamp(enemy.hp / enemy.maxHp, 0, 1), 1)
 	enemy.highlight.Enabled = true
@@ -3046,6 +3172,53 @@ local function arenaAt(position)
 	return nil
 end
 
+-- Swing the character's right arm (works for R15 and R6, no animation assets needed)
+local function swingArm(session, character)
+	local shoulder, axis
+	local upperArm = character:FindFirstChild("RightUpperArm")
+	if upperArm then
+		shoulder = upperArm:FindFirstChild("RightShoulder")
+		axis = "X"
+	else
+		local torso = character:FindFirstChild("Torso")
+		shoulder = torso and torso:FindFirstChild("Right Shoulder")
+		axis = "Z"
+	end
+	if not shoulder or not shoulder:IsA("Motor6D") then
+		return
+	end
+	if session.shoulder ~= shoulder then
+		session.shoulder = shoulder
+		session.shoulderC0 = shoulder.C0
+	end
+	local rest = session.shoulderC0
+	local function rotated(angle)
+		return axis == "X" and rest * CFrame.Angles(math.rad(angle), 0, 0) or rest * CFrame.Angles(0, 0, math.rad(angle))
+	end
+	if session.swingTween then
+		session.swingTween:Cancel()
+	end
+	local raise = TweenService:Create(shoulder, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { C0 = rotated(110) })
+	session.swingTween = raise
+	raise:Play()
+	task.delay(0.08, function()
+		if session.swingTween ~= raise then
+			return
+		end
+		local slash = TweenService:Create(shoulder, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { C0 = rotated(-20) })
+		session.swingTween = slash
+		slash:Play()
+		task.delay(0.14, function()
+			if session.swingTween ~= slash then
+				return
+			end
+			local back = TweenService:Create(shoulder, TweenInfo.new(0.15), { C0 = rest })
+			session.swingTween = back
+			back:Play()
+		end)
+	end)
+end
+
 local function attack(session)
 	local player = session.player
 	local character = player.Character
@@ -3059,6 +3232,7 @@ local function attack(session)
 		return
 	end
 	session.lastAttack = os.clock()
+	swingArm(session, character)
 	if session.swingSound and session.swingSound.Parent then
 		session.swingSound.PlaybackSpeed = rng:NextNumber(0.9, 1.15)
 		session.swingSound:Play()
@@ -3304,6 +3478,8 @@ RunService.Heartbeat:Connect(function(dt)
 				if targetDistance <= def.reach and t - enemy.lastAttack >= (def.attackCooldown or Config.EnemyAttackCooldown) then
 					enemy.lastAttack = t
 					target.humanoid:TakeDamage(def.damage)
+					enemy.lungeAt = t
+					damageNumber(target.hrp.Position, def.damage, Color3.fromRGB(255, 80, 80))
 					burst(target.hrp.Position, Color3.fromRGB(255, 60, 60), 1.5)
 				end
 			else
@@ -3327,9 +3503,40 @@ RunService.Heartbeat:Connect(function(dt)
 				enemyFloorY(enemy),
 				math.clamp(enemy.pos.Z, c.Z - margin, c.Z + margin)
 			)
-			local bob = def.height > 0 and math.sin(t * 2 + enemy.phase) * 0.6 or 0
-			local position = enemy.pos + Vector3.new(0, bob, 0)
+			-- procedural animation: swim wiggle / crab waddle, lunge when biting,
+			-- recoil when hit, rise + grow when spawning
+			local swimmer = def.height > 0
+			local chasing = target ~= nil
+			local bob = swimmer and math.sin(t * 2 + enemy.phase) * 0.6 or 0
+			local yaw = swimmer and math.sin(t * (chasing and 9 or 5) + enemy.phase) * 0.14 or 0
+			local roll = swimmer and 0 or math.sin(t * 12 + enemy.phase) * 0.09
+			local forward, pitch = 0, 0
+			if enemy.lungeAt then
+				local p = (t - enemy.lungeAt) / 0.3
+				if p < 1 then
+					local s = math.sin(p * math.pi)
+					forward += s * math.min(def.reach * 0.5, 6)
+					pitch -= s * 0.25
+				end
+			end
+			if enemy.hitAt then
+				local p = (t - enemy.hitAt) / 0.2
+				if p < 1 then
+					local s = math.sin(p * math.pi)
+					forward -= s * 1.2
+					pitch += s * 0.2
+				end
+			end
+			local appear = math.clamp((t - enemy.spawnedAt) / 0.6, 0, 1)
+			if appear < 1 then
+				scaleModel(enemy.model, 0.3 + 0.7 * appear)
+			elseif not enemy.fullSize then
+				enemy.fullSize = true
+				scaleModel(enemy.model, 1)
+			end
+			local position = enemy.pos + Vector3.new(0, bob - (1 - appear) * 4, 0)
 			enemy.root.CFrame = CFrame.lookAt(position, position + direction)
+				* CFrame.new(0, 0, -forward) * CFrame.Angles(pitch, yaw, roll)
 		end
 	end
 end)
@@ -3397,6 +3604,7 @@ local function onPlayerAdded(player)
 		character:WaitForChild("HumanoidRootPart", 10)
 		character:WaitForChild("Head", 10)
 		task.wait(0.1)
+		session.acLast = nil
 		teleportToBay(session)
 		if session.loaded then
 			updatePublicInfo(session)
@@ -3435,6 +3643,9 @@ local function onPlayerAdded(player)
 	giveWeaponTool(session)
 	pushState(session)
 	notify(player, { kind = "welcome", canSave = canSave })
+	if loginStatus(data).canClaim then
+		notify(player, { kind = "dailyAvailable" })
+	end
 end
 
 local function onPlayerRemoving(player)
@@ -3451,6 +3662,7 @@ local function onPlayerRemoving(player)
 	Sessions[player] = nil
 	if session.loaded then
 		saveData(session)
+		writeLeaderboards(session)
 	end
 	for _, entry in pairs(session.fleet) do
 		if entry.model then
@@ -3489,13 +3701,251 @@ game:BindToClose(function()
 	end
 end)
 
--- Autosave
+-- Autosave every minute (spread out so we don't hit DataStore limits) + leaderboards
+local LeaderboardStores = {}
+for _, lb in ipairs(Config.Leaderboards) do
+	pcall(function()
+		LeaderboardStores[lb.id] = DataStoreService:GetOrderedDataStore("LB_" .. lb.id .. "_v1")
+	end)
+end
+
+writeLeaderboards = function(session)
+	if not session.canSave then
+		return
+	end
+	session.lbWritten = session.lbWritten or {}
+	for _, lb in ipairs(Config.Leaderboards) do
+		local lbStore = LeaderboardStores[lb.id]
+		local value = math.floor(lb.value(session.data) or 0)
+		if lbStore and value > 0 and session.lbWritten[lb.id] ~= value then
+			local ok = pcall(function()
+				lbStore:SetAsync(tostring(session.player.UserId), value)
+			end)
+			if ok then
+				session.lbWritten[lb.id] = value
+			end
+		end
+	end
+end
+
 task.spawn(function()
 	while true do
-		task.wait(90)
+		task.wait(Config.AutosaveInterval)
+		local list = {}
 		for _, session in pairs(Sessions) do
 			if session.loaded then
-				task.spawn(saveData, session)
+				table.insert(list, session)
+			end
+		end
+		local gap = math.min(2, Config.AutosaveInterval / math.max(1, #list) / 2)
+		for _, session in ipairs(list) do
+			task.spawn(function()
+				saveData(session)
+				writeLeaderboards(session)
+			end)
+			task.wait(gap)
+		end
+	end
+end)
+
+---------------------------------------------------------------------------
+-- LEADERBOARD BOARDS on the island
+---------------------------------------------------------------------------
+local Boards = {}
+local nameCache = {}
+
+local function playerName(userId)
+	if nameCache[userId] then
+		return nameCache[userId]
+	end
+	local ok, name = pcall(function()
+		return Players:GetNameFromUserIdAsync(userId)
+	end)
+	if ok and name then
+		nameCache[userId] = name
+		return name
+	end
+	return "Player " .. userId
+end
+
+local function buildBoard(lb, position)
+	local cf = CFrame.lookAt(position, position + Vector3.new(0, 0, -1))
+	for _, x in ipairs({ -6.5, 6.5 }) do
+		makePart({
+			Size = Vector3.new(1, 15, 1),
+			CFrame = cf * CFrame.new(x, -1.5, 0.6),
+			Color = Color3.fromRGB(100, 70, 45),
+			Material = Enum.Material.Wood,
+		})
+	end
+	local board = makePart({
+		Name = "Leaderboard_" .. lb.id,
+		Size = Vector3.new(14, 12, 0.8),
+		CFrame = cf,
+		Color = Color3.fromRGB(14, 32, 52),
+		Material = Enum.Material.SmoothPlastic,
+	})
+	local gui = Instance.new("SurfaceGui")
+	gui.Face = Enum.NormalId.Front
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = 40
+	gui.Parent = board
+	local title = Instance.new("TextLabel")
+	title.Size = UDim2.new(1, 0, 0.13, 0)
+	title.BackgroundColor3 = lb.color
+	title.Font = Enum.Font.GothamBlack
+	title.TextScaled = true
+	title.TextColor3 = Color3.fromRGB(14, 32, 52)
+	title.Text = lb.title
+	title.Parent = gui
+	local rows = {}
+	for i = 1, 10 do
+		local row = Instance.new("TextLabel")
+		row.Size = UDim2.new(0.94, 0, 0.082, 0)
+		row.Position = UDim2.new(0.03, 0, 0.15 + (i - 1) * 0.085, 0)
+		row.BackgroundTransparency = i % 2 == 0 and 1 or 0.85
+		row.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		row.Font = i <= 3 and Enum.Font.GothamBlack or Enum.Font.GothamBold
+		row.TextScaled = true
+		row.TextXAlignment = Enum.TextXAlignment.Left
+		row.TextColor3 = i == 1 and Color3.fromRGB(255, 205, 80) or (i == 2 and Color3.fromRGB(220, 225, 235)
+			or (i == 3 and Color3.fromRGB(230, 150, 90) or Color3.fromRGB(235, 245, 250)))
+		row.Text = ""
+		row.Parent = gui
+		rows[i] = row
+	end
+	rows[1].Text = "  Loading..."
+	Boards[lb.id] = rows
+end
+
+local function refreshBoards()
+	for _, lb in ipairs(Config.Leaderboards) do
+		local rows = Boards[lb.id]
+		local lbStore = LeaderboardStores[lb.id]
+		local ok, page = false, nil
+		if lbStore then
+			ok, page = pcall(function()
+				return lbStore:GetSortedAsync(false, 10):GetCurrentPage()
+			end)
+		end
+		for i = 1, 10 do
+			rows[i].Text = ""
+		end
+		if not ok then
+			rows[1].Text = "  Publish the game + turn on API access"
+			rows[2].Text = "  to see global leaderboards."
+		elseif #page == 0 then
+			rows[1].Text = "  Nobody yet. Be the first!"
+		else
+			for i, entry in ipairs(page) do
+				rows[i].Text = string.format("  #%d  %s  -  %s", i, playerName(tonumber(entry.key)), Config.FormatNumber(entry.value))
+			end
+		end
+	end
+end
+
+for i, lb in ipairs(Config.Leaderboards) do
+	buildBoard(lb, Vector3.new((i - 2) * 18, 9.6, 42))
+end
+task.spawn(function()
+	while true do
+		refreshBoards()
+		task.wait(Config.LeaderboardRefresh)
+	end
+end)
+
+---------------------------------------------------------------------------
+-- LIVE PRICES: show what Roblox will really charge (the Creator Dashboard price)
+---------------------------------------------------------------------------
+task.spawn(function()
+	for _, pass in ipairs(Config.GamePasses) do
+		if pass.id ~= 0 then
+			local ok, info = pcall(function()
+				return MarketplaceService:GetProductInfo(pass.id, Enum.InfoType.GamePass)
+			end)
+			if ok and info and info.PriceInRobux then
+				LivePrices[pass.key] = info.PriceInRobux
+			end
+		end
+	end
+	for _, product in ipairs(Config.Products) do
+		if product.id ~= 0 then
+			local ok, info = pcall(function()
+				return MarketplaceService:GetProductInfo(product.id, Enum.InfoType.Product)
+			end)
+			if ok and info and info.PriceInRobux then
+				LivePrices[product.key] = info.PriceInRobux
+				if info.PriceInRobux ~= product.price then
+					warn(string.format("[Salvage] %s costs %d R$ on Roblox but %d in the config. Players see the Roblox price.",
+						product.name, info.PriceInRobux, product.price))
+				end
+			end
+		end
+	end
+end)
+
+---------------------------------------------------------------------------
+-- ANTI-CHEAT: the server watches every character's movement. Moving faster
+-- than WalkSpeed allows, flying up too fast or too high puts you back where
+-- you were and gives a strike. Too many strikes in a minute = kick.
+-- (WalkSpeed changes made by a cheat on their own computer don't reach the
+-- server, so the server's WalkSpeed is the real limit.)
+---------------------------------------------------------------------------
+local function strike(session, reason)
+	local ac = Config.AntiCheat
+	local clock = os.clock()
+	session.acStrikes = session.acStrikes or {}
+	table.insert(session.acStrikes, clock)
+	while session.acStrikes[1] and clock - session.acStrikes[1] > ac.strikeWindow do
+		table.remove(session.acStrikes, 1)
+	end
+	warn(string.format("[Salvage AntiCheat] %s: %s (%d strikes)", session.player.Name, reason, #session.acStrikes))
+	if ac.kick and #session.acStrikes >= ac.strikesToKick then
+		session.player:Kick("Unusual movement was detected. Please rejoin without any cheats.")
+	end
+end
+
+task.spawn(function()
+	local ac = Config.AntiCheat
+	while true do
+		task.wait(ac.interval)
+		if ac.enabled then
+			local clock = os.clock()
+			for player, session in pairs(Sessions) do
+				local character = player.Character
+				local hrp = character and character:FindFirstChild("HumanoidRootPart")
+				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+				if session.loaded and hrp and humanoid and humanoid.Health > 0 then
+					local pos = hrp.Position
+					local last = session.acLast
+					if session.acGraceUntil and clock < session.acGraceUntil then
+						session.acLast = { pos = pos, t = clock }
+					elseif last then
+						local dt = math.max(clock - last.t, 0.05)
+						local flat = Vector3.new(pos.X - last.pos.X, 0, pos.Z - last.pos.Z).Magnitude
+						local rise = pos.Y - last.pos.Y
+						local maxFlat = humanoid.WalkSpeed * ac.speedTolerance * dt + ac.extraStuds
+						local maxRise = ac.maxRiseSpeed * dt + ac.extraStuds
+						local reason
+						if flat > maxFlat then
+							reason = string.format("moved %.0f studs in %.1fs", flat, dt)
+						elseif rise > maxRise then
+							reason = string.format("rose %.0f studs in %.1fs", rise, dt)
+						elseif pos.Y > ac.maxHeight then
+							reason = string.format("too high (y=%.0f)", pos.Y)
+						end
+						if reason then
+							-- put them back where they were
+							session.acGraceUntil = clock + 0.5
+							character:PivotTo(CFrame.new(last.pos))
+							strike(session, reason)
+						else
+							session.acLast = { pos = pos, t = clock }
+						end
+					else
+						session.acLast = { pos = pos, t = clock }
+					end
+				end
 			end
 		end
 	end
@@ -3568,6 +4018,8 @@ Action.OnServerEvent:Connect(function(player, action, arg1, arg2)
 		claimQuest(session, arg1, math.floor(arg2))
 	elseif action == "Rebirth" then
 		doRebirth(session, false)
+	elseif action == "ClaimDaily" then
+		claimDaily(session)
 	elseif action == "EquipCharm" and typeof(arg1) == "string" then
 		toggleCharm(session, arg1)
 	elseif action == "DissolveCharm" and typeof(arg1) == "string" then

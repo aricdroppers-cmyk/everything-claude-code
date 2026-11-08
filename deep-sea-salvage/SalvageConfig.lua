@@ -506,9 +506,62 @@ Config.Products = {
 	{ key = "LevelPack", name = "+3 Levels", desc = "Instantly gain 3 levels.", price = 49, id = 0, levels = 3 },
 	{ key = "InstantRebirth", name = "Instant Rebirth", desc = "Rebirth right now, no level or coin requirement. You still get all the rebirth rewards.", price = 99, id = 0, rebirth = true },
 	{ key = "SeasonPremium", name = "Premium Season Pass", desc = "Unlocks the Premium reward track this season. +10% season XP.", price = 400, id = 0, seasonPass = "premium" },
-	{ key = "SeasonMystic", name = "Mystic Season Pass", desc = "Unlocks the Premium AND Mystic tracks: the best rewards, Mythic pets and the Mystic Trident. +25% season XP.", price = 1000, id = 0, seasonPass = "mystic" },
+	{ key = "SeasonMystic", name = "Mystic Season Pass", desc = "Everything in Premium PLUS the Mystic track: 3 Mythic pets, the Mystic Trident (best weapon), the biggest rewards and +25% season XP.", price = 800, id = 0, seasonPass = "mystic",
+		-- Launch sale. The price players pay is the one you set in the Creator Dashboard
+		-- (set it to 800). After saleEnds the "20% OFF" label hides itself, so set the
+		-- dashboard price back to originalPrice then. saleEnds is a UTC time
+		-- (os.time) - this one is 2026-12-31 23:59 UTC.
+		originalPrice = 1000, saleLabel = "20% OFF", saleEnds = 1798761540 },
 }
 Config.BoostMultiplier = 2
+
+-- Is a product's sale running right now?
+function Config.SaleActive(product, now)
+	return product.originalPrice ~= nil and (product.saleEnds == nil or (now or os.time()) < product.saleEnds)
+end
+
+---------------------------------------------------------------------------
+-- DAILY LOGIN STREAK. Log in every day to grow your streak. Miss a day and
+-- it goes back to day 1. Every full week multiplies the rewards (x1.25 per
+-- week, up to x2). coins with perLevel = true are multiplied by your level.
+---------------------------------------------------------------------------
+Config.DailyRewards = {
+	{ { kind = "coins", amount = 300, perLevel = true } },
+	{ { kind = "egg", id = "TidePool", amount = 2 } },
+	{ { kind = "pearls", amount = 10 } },
+	{ { kind = "boost", boost = "luck", minutes = 15 }, { kind = "coins", amount = 300, perLevel = true } },
+	{ { kind = "egg", id = "Kelp", amount = 2 } },
+	{ { kind = "pearls", amount = 20 }, { kind = "boost", boost = "coins", minutes = 30 } },
+	{ { kind = "charm", amount = 1 }, { kind = "pearls", amount = 30 }, { kind = "boost", boost = "all", minutes = 30 } },
+}
+Config.DailyWeekBonus = 0.25
+Config.DailyMaxMultiplier = 2
+
+---------------------------------------------------------------------------
+-- GLOBAL LEADERBOARDS (boards on the island, all servers, all time)
+---------------------------------------------------------------------------
+Config.Leaderboards = {
+	{ id = "Rebirths", title = "MOST REBIRTHS", color = Color3.fromRGB(255, 160, 60), value = function(data) return data.rebirths end },
+	{ id = "Levels", title = "MOST LEVELS GAINED", color = Color3.fromRGB(60, 225, 210), value = function(data) return data.stats.levelsGained end },
+	{ id = "Kills", title = "TOP HUNTERS", color = Color3.fromRGB(255, 90, 90), value = function(data) return data.stats.kills end },
+}
+Config.LeaderboardRefresh = 120 -- seconds between board refreshes
+Config.AutosaveInterval = 60 -- seconds between saves (and leaderboard updates)
+
+---------------------------------------------------------------------------
+-- ANTI-CHEAT (server-side movement checks)
+---------------------------------------------------------------------------
+Config.AntiCheat = {
+	enabled = true,
+	interval = 0.5, -- seconds between checks
+	speedTolerance = 1.6, -- allowed speed = WalkSpeed x this
+	extraStuds = 14, -- slack for lag spikes
+	maxRiseSpeed = 90, -- studs per second upward (a jump is ~50)
+	maxHeight = 160, -- nobody should ever be this high
+	strikesToKick = 10, -- kicked after this many strikes...
+	strikeWindow = 60, -- ...within this many seconds
+	kick = true,
+}
 
 function Config.GetPassByKey(key)
 	for _, pass in ipairs(Config.GamePasses) do
@@ -707,6 +760,8 @@ function Config.DescribeReward(reward, prestige)
 	elseif r.kind == "weapon" then
 		local w = Config.GetWeapon(r.id)
 		return w and w.name or r.id, Color3.fromRGB(255, 150, 80)
+	elseif r.kind == "charm" then
+		return (r.amount or 1) .. "x Random Season Charm", Color3.fromRGB(90, 255, 230)
 	end
 	return "?", Color3.new(1, 1, 1)
 end
