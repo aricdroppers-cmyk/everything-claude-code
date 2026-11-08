@@ -891,6 +891,8 @@ local function defaultData()
 		receipts = {}, -- developer product purchases already granted
 		receiptOrder = {},
 		testPasses = {}, -- passes "bought" in Studio test mode
+		charms = {}, -- [charmId] = how many you own
+		equippedCharms = {}, -- charm ids
 	}
 end
 
@@ -944,6 +946,20 @@ local function reconcile(data)
 			data.eggs[eggId] = nil
 		end
 	end
+
+	-- charms
+	for id, count in pairs(data.charms) do
+		if not Config.GetCharm(id) or type(count) ~= "number" or count < 1 then
+			data.charms[id] = nil
+		end
+	end
+	local charmsOn = {}
+	for _, id in ipairs(data.equippedCharms) do
+		if data.charms[id] and not table.find(charmsOn, id) and #charmsOn < Config.CharmSlots + 1 then
+			table.insert(charmsOn, id)
+		end
+	end
+	data.equippedCharms = charmsOn
 
 	-- weapons
 	local weapons = {}
@@ -1046,14 +1062,18 @@ local function maxEquipped(session)
 	return Config.MaxEquipped + (hasPass(session, "PetSlots") and 2 or 0)
 end
 
+local function charmSlots(session)
+	return Config.CharmSlots + (hasPass(session, "VIP") and 1 or 0)
+end
+
 -- Every bonus in the game, combined in one place
 local function getMultipliers(session)
 	local data = session.data
 	local pets = petBonus(data)
-	local rb = Config.Rebirth
-	local r = data.rebirths
+	local charms = Config.CharmBonusTotals(data.equippedCharms)
+	local rebirth = Config.RebirthTotals(data.rebirths)
 
-	local coins = 1 + pets.coins + r * rb.coinsBonus
+	local coins = 1 + pets.coins + charms.coins + rebirth.coins
 	for shipId in pairs(data.ships) do
 		local ship = Config.GetShip(shipId)
 		if ship then
@@ -1070,7 +1090,7 @@ local function getMultipliers(session)
 		coins *= Config.BoostMultiplier
 	end
 
-	local luck = 1 + pets.luck + r * rb.luckBonus
+	local luck = 1 + pets.luck + charms.luck + rebirth.luck
 	if hasPass(session, "LuckyDiver") then
 		luck *= 1.5
 	end
@@ -1078,7 +1098,7 @@ local function getMultipliers(session)
 		luck *= Config.BoostMultiplier
 	end
 
-	local xp = 1 + pets.xp + r * rb.xpBonus
+	local xp = 1 + pets.xp + charms.xp + rebirth.xp
 	if hasPass(session, "VIP") then
 		xp *= 1.2
 	end
@@ -1090,9 +1110,9 @@ local function getMultipliers(session)
 		coins = coins,
 		luck = luck,
 		xp = xp,
-		hull = pets.hull,
-		damage = 1 + r * rb.damageBonus,
-		maxHealth = Config.PlayerBaseHealth + data.level * Config.HealthPerLevel + r * rb.healthBonus,
+		hull = pets.hull + charms.hull,
+		damage = 1 + rebirth.damage + charms.damage,
+		maxHealth = Config.PlayerBaseHealth + data.level * Config.HealthPerLevel + rebirth.health,
 	}
 end
 
@@ -1152,7 +1172,7 @@ end
 local function questList(scope)
 	local list = {}
 	for i, q in ipairs(scope.list) do
-		list[i] = { id = q.id, progress = q.progress, claimed = q.claimed }
+		list[i] = { id = q.id, progress = q.progress, claimed = q.claimed, level = q.level }
 	end
 	return list
 end
@@ -1198,6 +1218,9 @@ local function pushState(session)
 		pets = data.pets,
 		equipped = data.equipped,
 		maxEquipped = maxEquipped(session),
+		charms = data.charms,
+		equippedCharms = data.equippedCharms,
+		charmSlots = charmSlots(session),
 		autoSell = data.autoSell,
 		petBonus = petBonus(data),
 		rebirths = data.rebirths,
@@ -1331,11 +1354,11 @@ end
 local startDive
 
 -- defined further down
-local questProgress, addSeasonXP, giveWeaponTool
+local questProgress, addSeasonXP, giveWeaponTool, giveRandomCharm, isNear
 
-local function addXP(session, amount)
+local function addXP(session, amount, raw)
 	local data = session.data
-	data.xp += math.floor(amount * getMultipliers(session).xp)
+	data.xp += math.floor(amount * (raw and 1 or getMultipliers(session).xp))
 	local leveled = false
 	while data.level < Config.MaxLevel and data.xp >= Config.XPToNext(data.level) do
 		data.xp -= Config.XPToNext(data.level)
@@ -1409,6 +1432,9 @@ local function collectCrate(session, index)
 		data.eggs[haul.egg] = (data.eggs[haul.egg] or 0) + 1
 		notify(session.player, { kind = "egg", egg = haul.egg })
 	end
+	if rng:NextNumber() < Config.CharmChanceHaul then
+		giveRandomCharm(session)
+	end
 	data.coins += total
 	notify(session.player, { kind = "coins", amount = total })
 	questProgress(session, "hauls", 1)
@@ -1461,7 +1487,7 @@ local function spawnCrate(session, index)
 			notify(who, { kind = "error", text = "That's not your haul!" })
 			return
 		end
-		if session.fleet[index] == entry then
+		if session.fleet[index] == entry and isNear(who, crate, 12) then
 			collectCrate(session, index)
 		end
 	end)
@@ -1883,7 +1909,10 @@ local function handleTradeAction(player, session, action, arg1, arg2)
 			notify(player, { kind = "error", text = target.DisplayName .. " hasn't reached Level " .. Config.TradeUnlockLevel .. " yet." })
 		elseif Trades[player] or Trades[target] then
 			notify(player, { kind = "error", text = "One of you is already trading." })
+		elseif os.clock() - (session.lastTradeRequest or -100) < 5 then
+			notify(player, { kind = "error", text = "Wait a few seconds before sending another request." })
 		else
+			session.lastTradeRequest = os.clock()
 			TradeRequests[target] = { from = player, expires = os.clock() + 20 }
 			notify(target, { kind = "tradeRequest", from = player.DisplayName, fromUserId = player.UserId })
 			notify(player, { kind = "info", text = "Trade request sent to " .. target.DisplayName .. "." })
@@ -1982,7 +2011,7 @@ end
 ---------------------------------------------------------------------------
 local function addBoost(session, which, minutes)
 	local data = session.data
-	local list = which == "all" and { "coins", "luck", "xp" } or { which }
+	local list = which == "all" and { "coins", "luck", "xp" } or (type(which) == "table" and which or { which })
 	for _, b in ipairs(list) do
 		local start = math.max(os.time(), data.boosts[b] or 0)
 		data.boosts[b] = start + minutes * 60
@@ -2149,6 +2178,7 @@ questProgress = function(session, stat, amount)
 			if def and def.stat == stat and not q.claimed and q.progress < def.target then
 				q.progress = math.min(def.target, q.progress + amount)
 				if q.progress >= def.target then
+					q.level = session.data.level -- reward is locked in now (no saving quests for a higher level)
 					notify(session.player, { kind = "questDone", text = string.format(def.text, def.target) })
 				end
 			end
@@ -2168,33 +2198,44 @@ local function claimQuest(session, scopeName, index)
 		return
 	end
 	q.claimed = true
-	local coins = def.reward.coins * data.level
+	local level = math.min(q.level or data.level, data.level)
+	local coins = def.reward.coins * level
 	data.coins += coins
 	data.pearls += def.reward.pearls
-	notify(session.player, { kind = "questClaimed", coins = coins, pearls = def.reward.pearls, seasonXp = def.reward.seasonXp })
+	local xp = math.floor(Config.XPToNext(data.level) * (def.reward.levels or 0))
+	notify(session.player, { kind = "questClaimed", coins = coins, pearls = def.reward.pearls, seasonXp = def.reward.seasonXp, xp = xp })
 	addSeasonXP(session, def.reward.seasonXp)
+	if xp > 0 then
+		addXP(session, xp, true)
+	end
 	pushState(session)
 end
 
 ---------------------------------------------------------------------------
 -- REBIRTH
 ---------------------------------------------------------------------------
-local function doRebirth(session)
+-- paid = true for the Instant Rebirth product (skips the requirements)
+local function doRebirth(session, paid)
 	local data = session.data
 	local player = session.player
 	local needLevel, needCoins = Config.RebirthRequirement(data.rebirths)
 	if data.rebirths >= Config.Rebirth.max then
 		notify(player, { kind = "error", text = "You've reached the max rebirths!" })
-		return
-	elseif data.level < needLevel or data.coins < needCoins then
+		return false
+	elseif not paid and (data.level < needLevel or data.coins < needCoins) then
 		notify(player, { kind = "error", text = "Rebirth needs Level " .. needLevel .. " and " .. Config.FormatNumber(needCoins) .. " coins." })
-		return
+		return false
 	elseif Trades[player] then
-		notify(player, { kind = "error", text = "Finish your trade first." })
-		return
+		if not paid then
+			notify(player, { kind = "error", text = "Finish your trade first." })
+			return false
+		end
+		endTrade(Trades[player], "Trade cancelled because " .. player.DisplayName .. " rebirthed.", Color3.fromRGB(255, 95, 95))
 	end
 
 	data.rebirths += 1
+	local reward = Config.RebirthBonusFor(data.rebirths)
+	data.pearls += reward.pearls
 	data.coins = 0
 	data.level = 1
 	data.xp = 0
@@ -2224,10 +2265,23 @@ local function doRebirth(session)
 	giveWeaponTool(session)
 	updatePublicInfo(session)
 	teleportToBay(session)
-	notify(player, { kind = "rebirth", rebirths = data.rebirths })
+	questProgress(session, "rebirths", 1)
+	notify(player, { kind = "rebirth", rebirths = data.rebirths, pearls = reward.pearls })
 	announce(player.DisplayName .. " just reached Rebirth " .. data.rebirths .. "!", Color3.fromRGB(255, 205, 80))
 	pushState(session)
 	task.spawn(saveData, session)
+	return true
+end
+
+-- +n levels right away (Level Pack product)
+local function giveLevels(session, n)
+	local data = session.data
+	for _ = 1, n do
+		if data.level >= Config.MaxLevel then
+			break
+		end
+		addXP(session, Config.XPToNext(data.level) - data.xp, true)
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -2253,12 +2307,28 @@ local function refreshPasses(session)
 	while #session.data.equipped > maxEquipped(session) do
 		table.remove(session.data.equipped)
 	end
+	while #session.data.equippedCharms > charmSlots(session) do
+		table.remove(session.data.equippedCharms)
+	end
 end
 
 local function grantProduct(session, product)
 	local data = session.data
 	if product.boost then
 		addBoost(session, product.boost, product.minutes)
+	elseif product.levels then
+		if data.level >= Config.MaxLevel then
+			data.pearls += 50
+			notify(session.player, { kind = "purchase", text = "You're max level, so you got 50 Pearls instead." })
+		else
+			giveLevels(session, product.levels)
+		end
+	elseif product.rebirth then
+		if not doRebirth(session, true) then
+			-- already at max rebirths: never take Robux for nothing
+			data.pearls += 150
+			notify(session.player, { kind = "purchase", text = "You're at max rebirths, so you got 150 Pearls instead." })
+		end
 	elseif product.seasonPass == "premium" then
 		data.season.premium = true
 	elseif product.seasonPass == "mystic" then
@@ -2291,6 +2361,12 @@ local function handleBuy(session, key)
 		local season = session.data.season
 		if (product.seasonPass == "premium" and (season.premium or season.mystic)) or (product.seasonPass == "mystic" and season.mystic) then
 			notify(player, { kind = "error", text = "You already have that season pass." })
+		elseif product.levels and session.data.level >= Config.MaxLevel then
+			notify(player, { kind = "error", text = "You're already max level!" })
+		elseif product.rebirth and session.data.rebirths >= Config.Rebirth.max then
+			notify(player, { kind = "error", text = "You're already at max rebirths!" })
+		elseif product.rebirth and Trades[player] then
+			notify(player, { kind = "error", text = "Finish your trade first." })
 		elseif product.id ~= 0 then
 			MarketplaceService:PromptProductPurchase(player, product.id)
 		elseif RunService:IsStudio() then
@@ -2348,6 +2424,177 @@ MarketplaceService.ProcessReceipt = function(info)
 	end
 	return Enum.ProductPurchaseDecision.PurchaseGranted
 end
+
+---------------------------------------------------------------------------
+-- SEASON CHARMS + TIDE BOTTLES (seasonal items found in the water)
+---------------------------------------------------------------------------
+-- True when the player's character is close enough to a part to really be
+-- using it (stops exploiters triggering prompts from across the map)
+isNear = function(player, part, maxDistance)
+	local character = player.Character
+	local hrp = character and character:FindFirstChild("HumanoidRootPart")
+	if not hrp or not part or not part.Parent then
+		return false
+	end
+	return (hrp.Position - part.Position).Magnitude <= maxDistance + 6
+end
+
+giveRandomCharm = function(session)
+	local pool = Config.SeasonCharms()
+	if #pool == 0 then
+		return
+	end
+	local total = 0
+	for _, charm in ipairs(pool) do
+		total += charm.weight
+	end
+	local roll = rng:NextNumber() * total
+	local picked = pool[#pool]
+	for _, charm in ipairs(pool) do
+		roll -= charm.weight
+		if roll <= 0 then
+			picked = charm
+			break
+		end
+	end
+	local data = session.data
+	local isNew = (data.charms[picked.id] or 0) == 0
+	data.charms[picked.id] = (data.charms[picked.id] or 0) + 1
+	if isNew and #data.equippedCharms < charmSlots(session) then
+		table.insert(data.equippedCharms, picked.id)
+	end
+	notify(session.player, { kind = "charm", id = picked.id, isNew = isNew })
+	if picked.rarity >= 4 then
+		announce(session.player.DisplayName .. " found a " .. Config.PetRarities[picked.rarity].name .. " " .. picked.name .. "!",
+			Config.PetRarities[picked.rarity].color)
+	end
+end
+
+local function toggleCharm(session, id)
+	local data = session.data
+	if not data.charms[id] then
+		return
+	end
+	local index = table.find(data.equippedCharms, id)
+	if index then
+		table.remove(data.equippedCharms, index)
+	elseif #data.equippedCharms < charmSlots(session) then
+		table.insert(data.equippedCharms, id)
+	else
+		notify(session.player, { kind = "error", text = "All " .. charmSlots(session) .. " charm slots are full. Unequip one first." })
+		return
+	end
+	pushState(session)
+end
+
+local function dissolveCharm(session, id)
+	local data = session.data
+	local charm = Config.GetCharm(id)
+	local count = data.charms[id]
+	if not charm or not count then
+		return
+	end
+	local inUse = table.find(data.equippedCharms, id) and 1 or 0
+	if count - inUse < 1 then
+		notify(session.player, { kind = "error", text = "That's your only " .. charm.name .. " and it's equipped." })
+		return
+	end
+	data.charms[id] = count - 1
+	if data.charms[id] <= 0 then
+		data.charms[id] = nil
+	end
+	local xp = Config.CharmDissolveXp[charm.rarity]
+	notify(session.player, { kind = "info", text = "Dissolved a " .. charm.name .. " for " .. xp .. " season XP." })
+	addSeasonXP(session, xp)
+	pushState(session)
+end
+
+local drifterFolder = Instance.new("Folder")
+drifterFolder.Name = "TideBottles"
+drifterFolder.Parent = World
+
+local function spawnDrifter()
+	local cfg = Config.Drifters
+	local bayAngle = rng:NextInteger(0, BAY_COUNT - 1) * (360 / BAY_COUNT)
+	local angle = math.rad(bayAngle + rng:NextNumber(14, 46))
+	local pos = polar(rng:NextNumber(75, 170), angle, 0.5)
+	local cf = CFrame.new(pos) * CFrame.Angles(0, rng:NextNumber(0, 6.28), math.rad(80))
+	local bottle = makePart({
+		Name = "TideBottle",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(2.8, 1.5, 1.5),
+		CFrame = cf,
+		Color = Color3.fromRGB(190, 240, 235),
+		Material = Enum.Material.Glass,
+		Transparency = 0.35,
+		CanCollide = false,
+		Parent = drifterFolder,
+	})
+	local function attach(props, offset)
+		props.Parent = bottle
+		props.CanCollide = false
+		props.CFrame = cf * offset
+		local part = makePart(props)
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = bottle
+		weld.Part1 = part
+		weld.Parent = part
+		return part
+	end
+	attach({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.9, 0.7, 0.7), Color = Color3.fromRGB(190, 240, 235),
+		Material = Enum.Material.Glass, Transparency = 0.35 }, CFrame.new(1.8, 0, 0))
+	attach({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.4, 0.75, 0.75), Color = Color3.fromRGB(140, 95, 55),
+		Material = Enum.Material.Wood }, CFrame.new(2.4, 0, 0))
+	attach({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(1.8, 0.8, 0.8), Color = cfg.color,
+		Material = Enum.Material.Neon }, CFrame.new(-0.1, 0, 0))
+	local light = Instance.new("PointLight")
+	light.Color = cfg.color
+	light.Range = 14
+	light.Brightness = 2
+	light.Parent = bottle
+	local sparkles = Instance.new("ParticleEmitter")
+	sparkles.Color = ColorSequence.new(cfg.color)
+	sparkles.LightEmission = 1
+	sparkles.Rate = 6
+	sparkles.Speed = NumberRange.new(1, 3)
+	sparkles.Size = NumberSequence.new(0.35)
+	sparkles.Parent = bottle
+	addBillboard(bottle, cfg.name, cfg.color, 3, 90, 160)
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "Open"
+	prompt.ObjectText = cfg.name
+	prompt.HoldDuration = 0.6
+	prompt.MaxActivationDistance = 12
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = bottle
+	prompt.Triggered:Connect(function(who)
+		local session = Sessions[who]
+		if not session or not session.loaded or bottle:GetAttribute("Claimed") or not isNear(who, bottle, 12) then
+			return
+		end
+		bottle:SetAttribute("Claimed", true)
+		local coins = math.floor(cfg.coins * coinMultiplier(session))
+		session.data.coins += coins
+		notify(who, { kind = "drifter", coins = coins, seasonXp = cfg.seasonXp })
+		questProgress(session, "drifters", 1)
+		addSeasonXP(session, cfg.seasonXp)
+		if rng:NextNumber() < cfg.charmChance then
+			giveRandomCharm(session)
+		end
+		pushState(session)
+		bottle:Destroy()
+	end)
+end
+
+task.spawn(function()
+	while true do
+		task.wait(Config.Drifters.interval)
+		if #Players:GetPlayers() > 0 and #drifterFolder:GetChildren() < Config.Drifters.max then
+			spawnDrifter()
+		end
+	end
+end)
 
 ---------------------------------------------------------------------------
 -- HUNTING GROUNDS: arenas, portals, enemies, weapons, the Leviathan
@@ -2552,7 +2799,7 @@ local function buildPortal(arena, angle)
 	prompt.Parent = surface
 	prompt.Triggered:Connect(function(who)
 		local session = Sessions[who]
-		if not session or not session.loaded then
+		if not session or not session.loaded or not isNear(who, surface, 12) then
 			return
 		end
 		if session.data.level < def.level then
@@ -2738,6 +2985,12 @@ local function killEnemy(enemy)
 				data.pearls += def.pearls
 			end
 			questProgress(session, "kills", 1)
+			if zoneIndex >= 2 then
+				questProgress(session, "deepKills", 1)
+			end
+			if rng:NextNumber() < Config.CharmChanceKill then
+				giveRandomCharm(session)
+			end
 			addSeasonXP(session, def.seasonXp)
 			addXP(session, def.xp)
 			local drops = def.boss and 3 or (rng:NextNumber() < Config.EnemyFragmentChance and 1 or 0)
@@ -2783,6 +3036,16 @@ end
 ---------------------------------------------------------------------------
 -- WEAPONS
 ---------------------------------------------------------------------------
+local function arenaAt(position)
+	for _, arena in ipairs(Arenas) do
+		local offset = position - arena.center
+		if math.abs(offset.X) <= ARENA_HALF + 10 and math.abs(offset.Z) <= ARENA_HALF + 10 and offset.Y > -20 and offset.Y < 150 then
+			return arena
+		end
+	end
+	return nil
+end
+
 local function attack(session)
 	local player = session.player
 	local character = player.Character
@@ -2796,6 +3059,10 @@ local function attack(session)
 		return
 	end
 	session.lastAttack = os.clock()
+	if session.swingSound and session.swingSound.Parent then
+		session.swingSound.PlaybackSpeed = rng:NextNumber(0.9, 1.15)
+		session.swingSound:Play()
+	end
 
 	-- swing effect
 	local slash = makePart({
@@ -2812,9 +3079,10 @@ local function attack(session)
 		slash:Destroy()
 	end)
 
+	local myArena = arenaAt(hrp.Position)
 	local best, bestScore = nil, math.huge
 	for _, enemy in ipairs(Enemies) do
-		if enemy.alive then
+		if enemy.alive and enemy.arena == myArena then
 			local offset = enemy.root.Position - hrp.Position
 			local flat = Vector3.new(offset.X, 0, offset.Z)
 			local distance = flat.Magnitude - enemy.radius
@@ -2909,6 +3177,12 @@ giveWeaponTool = function(session)
 		light.Range = 8
 		light.Parent = handle
 	end
+	local swing = Instance.new("Sound")
+	swing.Name = "Swing"
+	swing.SoundId = "rbxasset://sounds/swordslash.wav" -- built into Roblox
+	swing.Volume = 0.5
+	swing.Parent = handle
+	session.swingSound = swing
 	tool.Activated:Connect(function()
 		attack(session)
 	end)
@@ -2949,15 +3223,6 @@ end
 ---------------------------------------------------------------------------
 -- ENEMY AI (only runs in arenas that have players in them)
 ---------------------------------------------------------------------------
-local function arenaAt(position)
-	for _, arena in ipairs(Arenas) do
-		local offset = position - arena.center
-		if math.abs(offset.X) <= ARENA_HALF + 10 and math.abs(offset.Z) <= ARENA_HALF + 10 and offset.Y > -20 and offset.Y < 150 then
-			return arena
-		end
-	end
-	return nil
-end
 
 local occupancyTimer = 0
 RunService.Heartbeat:Connect(function(dt)
@@ -2973,7 +3238,11 @@ RunService.Heartbeat:Connect(function(dt)
 			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 			if session.loaded and hrp and humanoid and humanoid.Health > 0 then
 				local arena = arenaAt(hrp.Position)
-				if arena then
+				if arena and session.data.level < arena.def.level then
+					-- got in without using the portal (or rebirthed inside): send them home
+					teleportToBay(session)
+					notify(player, { kind = "error", text = "You need Level " .. arena.def.level .. " for this hunting ground." })
+				elseif arena then
 					table.insert(arena.players, { player = player, hrp = hrp, humanoid = humanoid })
 				end
 			end
@@ -3131,6 +3400,7 @@ local function onPlayerAdded(player)
 		teleportToBay(session)
 		if session.loaded then
 			updatePublicInfo(session)
+			player:WaitForChild("Backpack", 5)
 			giveWeaponTool(session)
 		end
 	end)
@@ -3236,9 +3506,17 @@ end)
 ---------------------------------------------------------------------------
 Action.OnServerEvent:Connect(function(player, action, arg1, arg2)
 	local session = Sessions[player]
-	if not session or not session.loaded then
+	if not session or not session.loaded or typeof(action) ~= "string" then
 		return
 	end
+	-- rate limit: about 12 actions a second, bursts of 20 (stops remote spam)
+	local clock = os.clock()
+	session.tokens = math.min(20, (session.tokens or 20) + (clock - (session.lastTokenTime or clock)) * 12)
+	session.lastTokenTime = clock
+	if session.tokens < 1 then
+		return
+	end
+	session.tokens -= 1
 	local data = session.data
 
 	if action == "BuySub" and typeof(arg1) == "string" then
@@ -3289,7 +3567,11 @@ Action.OnServerEvent:Connect(function(player, action, arg1, arg2)
 	elseif action == "ClaimQuest" and typeof(arg1) == "string" and typeof(arg2) == "number" then
 		claimQuest(session, arg1, math.floor(arg2))
 	elseif action == "Rebirth" then
-		doRebirth(session)
+		doRebirth(session, false)
+	elseif action == "EquipCharm" and typeof(arg1) == "string" then
+		toggleCharm(session, arg1)
+	elseif action == "DissolveCharm" and typeof(arg1) == "string" then
+		dissolveCharm(session, arg1)
 	elseif action == "SeasonPrestige" then
 		seasonPrestige(session)
 	elseif action == "Buy" and typeof(arg1) == "string" then
@@ -3410,7 +3692,7 @@ EventHandlers.TreasureTide = function(ctx)
 		prompt.Parent = chest
 		prompt.Triggered:Connect(function(who)
 			local session = Sessions[who]
-			if not session or not session.loaded or chest:GetAttribute("Claimed") then
+			if not session or not session.loaded or chest:GetAttribute("Claimed") or not isNear(who, chest, 12) then
 				return
 			end
 			chest:SetAttribute("Claimed", true)

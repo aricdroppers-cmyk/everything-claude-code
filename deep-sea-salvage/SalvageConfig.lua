@@ -407,45 +407,82 @@ end
 -- game passes and boosts.
 ---------------------------------------------------------------------------
 Config.Rebirth = {
-	max = 10,
-	levelBase = 25, -- level needed for the 1st rebirth
-	levelPer = 10, -- +10 levels needed for each rebirth after that
-	coinsBase = 250000, -- coins needed for the 1st rebirth
-	coinsGrowth = 3, -- each rebirth costs 3x the coins of the last
-	-- bonuses PER rebirth
-	coinsBonus = 0.5,
-	xpBonus = 0.25,
-	luckBonus = 0.05,
-	damageBonus = 0.15,
-	healthBonus = 100,
+	max = 15,
+	-- Requirement for rebirth number (r + 1): Level levelBase + levelPer * r,
+	-- coins coinsBase * coinsGrowth ^ r. Simulated (hauling only, perfect play):
+	-- 1st ~20 min, 2nd ~26 min, 3rd ~38 min, 4th ~52 min, 5th ~78 min, ...
+	levelBase = 7,
+	levelPer = 3,
+	coinsBase = 13000,
+	coinsGrowth = 2.3,
+	-- Bonus from rebirth number n = first + grow * (n - 1), so every rebirth
+	-- gives a bit more than the one before it.
+	bonus = {
+		coins = { first = 0.25, grow = 0.05 },
+		xp = { first = 0.15, grow = 0.03 },
+		luck = { first = 0.03, grow = 0.01 },
+		damage = { first = 0.10, grow = 0.03 },
+		health = { first = 50, grow = 15 },
+	},
+	pearlsFirst = 5, -- pearls handed out on rebirth number n: first + per * (n - 1)
+	pearlsPer = 5,
 }
 
 function Config.RebirthRequirement(rebirths)
 	local r = Config.Rebirth
-	return r.levelBase + r.levelPer * rebirths, math.floor(r.coinsBase * r.coinsGrowth ^ rebirths)
+	-- rounded to a tidy number (13,000 x 2.3 is 29,899.999... in floating point)
+	local coins = r.coinsBase * r.coinsGrowth ^ rebirths
+	local step = coins >= 1e6 and 10000 or (coins >= 1e5 and 1000 or 100)
+	return r.levelBase + r.levelPer * rebirths, math.floor(coins / step + 0.5) * step
+end
+
+-- What rebirth number n gives on its own
+function Config.RebirthBonusFor(n)
+	local out = {}
+	for stat, b in pairs(Config.Rebirth.bonus) do
+		out[stat] = b.first + b.grow * (n - 1)
+	end
+	out.pearls = Config.Rebirth.pearlsFirst + Config.Rebirth.pearlsPer * (n - 1)
+	return out
+end
+
+-- Everything you have after r rebirths
+function Config.RebirthTotals(r)
+	local totals = { coins = 0, xp = 0, luck = 0, damage = 0, health = 0 }
+	for n = 1, r do
+		local b = Config.RebirthBonusFor(n)
+		for stat in pairs(totals) do
+			totals[stat] += b[stat]
+		end
+	end
+	return totals
 end
 
 ---------------------------------------------------------------------------
 -- QUESTS. Daily quests reset at midnight UTC, weekly ones every Monday.
--- Reward coins are multiplied by your level.
+-- Reward coins are multiplied by your level when you finish the quest.
+-- levels = XP worth that many of your current levels (helps toward rebirth).
 ---------------------------------------------------------------------------
 Config.DailyQuestCount = 3
 Config.DailyQuests = {
-	{ id = "Haul", text = "Haul up %d crates", stat = "hauls", target = 40, reward = { coins = 150, pearls = 2, seasonXp = 400 } },
-	{ id = "Defeat", text = "Defeat %d sea creatures", stat = "kills", target = 25, reward = { coins = 200, pearls = 2, seasonXp = 400 } },
-	{ id = "NewFrag", text = "Find %d fragments you didn't have", stat = "newFragments", target = 3, reward = { coins = 200, pearls = 3, seasonXp = 450 } },
-	{ id = "Hatch", text = "Hatch %d eggs", stat = "hatches", target = 2, reward = { coins = 150, pearls = 2, seasonXp = 350 } },
-	{ id = "DeepDive", text = "Finish %d dives in Twilight Drop or deeper", stat = "deepDives", target = 15, reward = { coins = 250, pearls = 3, seasonXp = 450 } },
-	{ id = "Chests", text = "Open %d treasure chests", stat = "chests", target = 2, reward = { coins = 150, pearls = 3, seasonXp = 350 } },
-	{ id = "Kraken", text = "Hit the Kraken %d times", stat = "krakenHits", target = 30, reward = { coins = 200, pearls = 3, seasonXp = 400 } },
-	{ id = "Fragments", text = "Collect %d fragments", stat = "fragments", target = 50, reward = { coins = 150, pearls = 2, seasonXp = 350 } },
+	{ id = "Haul", text = "Haul up %d crates", stat = "hauls", target = 40, reward = { coins = 150, pearls = 2, seasonXp = 400, levels = 0.5 } },
+	{ id = "Defeat", text = "Defeat %d sea creatures", stat = "kills", target = 25, reward = { coins = 200, pearls = 2, seasonXp = 400, levels = 0.5 } },
+	{ id = "NewFrag", text = "Find %d fragments you didn't have", stat = "newFragments", target = 3, reward = { coins = 200, pearls = 3, seasonXp = 450, levels = 0.5 } },
+	{ id = "Hatch", text = "Hatch %d eggs", stat = "hatches", target = 2, reward = { coins = 150, pearls = 2, seasonXp = 350, levels = 0.5 } },
+	{ id = "Hunter", text = "Defeat %d creatures in Kelp Reef or deeper", stat = "deepKills", target = 15, reward = { coins = 250, pearls = 3, seasonXp = 450, levels = 0.5 } },
+	{ id = "Drifters", text = "Open %d Tide Bottles floating in the sea", stat = "drifters", target = 3, reward = { coins = 200, pearls = 3, seasonXp = 400, levels = 0.5 } },
+	{ id = "DeepDive", text = "Finish %d dives in Twilight Drop or deeper", stat = "deepDives", target = 15, reward = { coins = 250, pearls = 3, seasonXp = 450, levels = 0.5 } },
+	{ id = "Chests", text = "Open %d treasure chests", stat = "chests", target = 2, reward = { coins = 150, pearls = 3, seasonXp = 350, levels = 0.5 } },
+	{ id = "Kraken", text = "Hit the Kraken %d times", stat = "krakenHits", target = 30, reward = { coins = 200, pearls = 3, seasonXp = 400, levels = 0.5 } },
+	{ id = "Fragments", text = "Collect %d fragments", stat = "fragments", target = 50, reward = { coins = 150, pearls = 2, seasonXp = 350, levels = 0.5 } },
 }
 Config.WeeklyQuestCount = 2
 Config.WeeklyQuests = {
-	{ id = "WeeklyHaul", text = "Haul up %d crates", stat = "hauls", target = 500, reward = { coins = 2000, pearls = 15, seasonXp = 2500 } },
-	{ id = "WeeklyDefeat", text = "Defeat %d sea creatures", stat = "kills", target = 300, reward = { coins = 2500, pearls = 15, seasonXp = 2500 } },
-	{ id = "WeeklyHatch", text = "Hatch %d eggs", stat = "hatches", target = 15, reward = { coins = 2000, pearls = 12, seasonXp = 2000 } },
-	{ id = "WeeklyDeep", text = "Finish %d dives in Twilight Drop or deeper", stat = "deepDives", target = 150, reward = { coins = 2500, pearls = 15, seasonXp = 2500 } },
+	{ id = "WeeklyHaul", text = "Haul up %d crates", stat = "hauls", target = 500, reward = { coins = 2000, pearls = 15, seasonXp = 2500, levels = 2 } },
+	{ id = "WeeklyDefeat", text = "Defeat %d sea creatures", stat = "kills", target = 300, reward = { coins = 2500, pearls = 15, seasonXp = 2500, levels = 2 } },
+	{ id = "WeeklyHatch", text = "Hatch %d eggs", stat = "hatches", target = 15, reward = { coins = 2000, pearls = 12, seasonXp = 2000, levels = 2 } },
+	{ id = "WeeklyDeep", text = "Finish %d dives in Twilight Drop or deeper", stat = "deepDives", target = 150, reward = { coins = 2500, pearls = 15, seasonXp = 2500, levels = 2 } },
+	{ id = "WeeklyRebirth", text = "Rebirth %d times", stat = "rebirths", target = 2, reward = { coins = 3000, pearls = 20, seasonXp = 3000, levels = 2 } },
 }
 
 ---------------------------------------------------------------------------
@@ -465,6 +502,9 @@ Config.Products = {
 	{ key = "BoostCoins", name = "2x Coins (30 min)", desc = "Double coins for 30 minutes.", price = 29, id = 0, boost = "coins", minutes = 30 },
 	{ key = "BoostLuck", name = "2x Luck (30 min)", desc = "Double luck for 30 minutes.", price = 39, id = 0, boost = "luck", minutes = 30 },
 	{ key = "BoostXP", name = "2x XP (30 min)", desc = "Double XP for 30 minutes.", price = 25, id = 0, boost = "xp", minutes = 30 },
+	{ key = "RebirthRush", name = "Rebirth Rush (30 min)", desc = "2x Coins AND 2x XP for 30 minutes. Rebirth way faster.", price = 49, id = 0, boost = { "coins", "xp" }, minutes = 30 },
+	{ key = "LevelPack", name = "+3 Levels", desc = "Instantly gain 3 levels.", price = 49, id = 0, levels = 3 },
+	{ key = "InstantRebirth", name = "Instant Rebirth", desc = "Rebirth right now, no level or coin requirement. You still get all the rebirth rewards.", price = 99, id = 0, rebirth = true },
 	{ key = "SeasonPremium", name = "Premium Season Pass", desc = "Unlocks the Premium reward track this season. +10% season XP.", price = 400, id = 0, seasonPass = "premium" },
 	{ key = "SeasonMystic", name = "Mystic Season Pass", desc = "Unlocks the Premium AND Mystic tracks: the best rewards, Mythic pets and the Mystic Trident. +25% season XP.", price = 1000, id = 0, seasonPass = "mystic" },
 }
@@ -512,6 +552,78 @@ Config.Season = {
 	xpPerHaul = 1,
 	xpPerEvent = 150,
 }
+
+---------------------------------------------------------------------------
+-- SEASON CHARMS: items found in the water this season.
+-- They drop from hauls, creatures and Tide Bottles (floating in the sea around
+-- the island). Equip up to CharmSlots of them (+1 with VIP) for their bonus.
+-- Charms from an old season keep working, they just stop dropping.
+-- When you make Season 2, add new charms with season = "S2".
+---------------------------------------------------------------------------
+Config.CharmSlots = 2
+Config.Charms = {
+	{ id = "SeaGlass", name = "Sea-Glass Charm", season = "S1", rarity = 1, weight = 40,
+		color = rgb(120, 230, 210), bonus = { luck = 0.05 } },
+	{ id = "TideShell", name = "Tide Shell", season = "S1", rarity = 1, weight = 35,
+		color = rgb(255, 210, 170), bonus = { coins = 0.06 } },
+	{ id = "CoralTotem", name = "Coral Totem", season = "S1", rarity = 2, weight = 14,
+		color = rgb(255, 120, 150), bonus = { xp = 0.12 } },
+	{ id = "KrakenTooth", name = "Kraken Tooth", season = "S1", rarity = 3, weight = 6,
+		color = rgb(235, 225, 210), bonus = { damage = 0.2 } },
+	{ id = "StormScale", name = "Storm Scale", season = "S1", rarity = 3, weight = 3.5,
+		color = rgb(120, 140, 255), bonus = { luck = 0.12, hull = 0.01 } },
+	{ id = "Moonstone", name = "Moonstone", season = "S1", rarity = 4, weight = 1.2,
+		color = rgb(200, 220, 255), bonus = { luck = 0.2, xp = 0.15 } },
+	{ id = "CrownOfTides", name = "Crown of Tides", season = "S1", rarity = 5, weight = 0.3,
+		color = rgb(255, 205, 70), bonus = { luck = 0.35, coins = 0.25 } },
+}
+Config.CharmChanceHaul = 0.02 -- chance per successful haul
+Config.CharmChanceKill = 0.01 -- chance per creature kill
+Config.CharmDissolveXp = { 40, 100, 250, 600, 1500 } -- season XP for dissolving a spare, by rarity
+
+-- Tide Bottles: glowing bottles that bob in the sea. Swim out and open them.
+Config.Drifters = {
+	name = "Tide Bottle",
+	interval = 35, -- seconds between new bottles
+	max = 8, -- bottles floating at once
+	seasonXp = 60,
+	coins = 120, -- multiplied by your coin bonus
+	charmChance = 0.35,
+	color = rgb(90, 255, 230),
+}
+
+function Config.GetCharm(id)
+	for _, charm in ipairs(Config.Charms) do
+		if charm.id == id then
+			return charm
+		end
+	end
+	return nil
+end
+
+-- Charms that can drop right now (this season's)
+function Config.SeasonCharms()
+	local list = {}
+	for _, charm in ipairs(Config.Charms) do
+		if charm.season == Config.Season.id then
+			table.insert(list, charm)
+		end
+	end
+	return list
+end
+
+function Config.CharmBonusTotals(charmIds)
+	local totals = { coins = 0, luck = 0, hull = 0, xp = 0, damage = 0 }
+	for _, id in ipairs(charmIds) do
+		local charm = Config.GetCharm(id)
+		if charm then
+			for stat, value in pairs(charm.bonus) do
+				totals[stat] += value
+			end
+		end
+	end
+	return totals
+end
 
 local function coins(amount)
 	return { kind = "coins", amount = amount }
@@ -681,6 +793,9 @@ function Config.DescribeBonus(bonus)
 	end
 	if bonus.xp then
 		table.insert(parts, "+" .. math.floor(bonus.xp * 100 + 0.5) .. "% XP")
+	end
+	if bonus.damage then
+		table.insert(parts, "+" .. math.floor(bonus.damage * 100 + 0.5) .. "% damage")
 	end
 	return table.concat(parts, "  ")
 end

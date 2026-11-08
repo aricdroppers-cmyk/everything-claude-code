@@ -1166,10 +1166,219 @@ local function gridSection(order, cellSize)
 	return holder
 end
 
+local renderPanelRef -- set further down
+local pct -- set further down
+
+---------------------------------------------------------------------------
+-- CHARMS TAB (inside the PETS panel)
+---------------------------------------------------------------------------
+local petsTab = "Pets"
+local petFilter = "All"
+local charmArmed = {}
+
+local function gem(parent, color, size, position, faded)
+	local g = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = position,
+		Size = UDim2.new(0, size, 0, size),
+		Rotation = 45,
+		BackgroundColor3 = faded and Color3.fromRGB(55, 65, 80) or color,
+		Parent = parent,
+	})
+	corner(g, math.floor(size / 6))
+	stroke(g, faded and THEME.muted or Color3.new(1, 1, 1), 2, faded and 0.6 or 0.3)
+	gradient(g, Color3.new(1, 1, 1), Color3.fromRGB(140, 140, 165))
+	local shine = new("Frame", {
+		Position = UDim2.fromScale(0.18, 0.18),
+		Size = UDim2.fromScale(0.28, 0.28),
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		BackgroundTransparency = faded and 0.85 or 0.35,
+		Parent = g,
+	})
+	corner(shine, 4)
+	return g
+end
+
+local function petsTabs()
+	local owned = 0
+	for _, count in pairs(state.charms) do
+		owned += count
+	end
+	local tabs = card(48, 0)
+	for i, name in ipairs({ "Pets", "Charms" }) do
+		local selected = petsTab == name
+		local tab = button({
+			Position = UDim2.new((i - 1) * 0.5, 8, 0, 7),
+			Size = UDim2.new(0.5, -12, 0, 34),
+			Text = name == "Charms" and ("CHARMS (" .. owned .. ")") or ("PETS (" .. #state.pets .. ")"),
+			BackgroundColor3 = selected and Color3.fromRGB(255, 130, 200) or THEME.bg,
+			TextColor3 = selected and THEME.bg or THEME.text,
+			Parent = tabs,
+		})
+		tab.MouseButton1Click:Connect(function()
+			petsTab = name
+			renderPanelRef()
+		end)
+	end
+end
+
+local function nonZero(totals)
+	local out = {}
+	for stat, value in pairs(totals) do
+		if value > 0 then
+			out[stat] = value
+		end
+	end
+	return out
+end
+
+local function renderCharms()
+	panelTitle.Text = "SEASON CHARMS"
+	panelSubtitle.Text = string.format("Equipped %d/%d", #state.equippedCharms, state.charmSlots)
+
+	local summary = card(64, 1, THEME.accent)
+	local bonusText = Config.DescribeBonus(nonZero(Config.CharmBonusTotals(state.equippedCharms)))
+	text({
+		Position = UDim2.new(0, 14, 0, 8),
+		Size = UDim2.new(1, -28, 0, 20),
+		Text = "Charm bonus: " .. (bonusText ~= "" and bonusText or "none - equip a charm!"),
+		Font = Enum.Font.GothamBlack,
+		TextColor3 = THEME.accent,
+		MaxTextSize = 16,
+		Parent = summary,
+	})
+	text({
+		Position = UDim2.new(0, 14, 0, 34),
+		Size = UDim2.new(1, -28, 0, 20),
+		Text = string.format("Found in %ss floating in the sea (%d%%), hauls (%d%%) and creatures (%d%%). Only this season!",
+			Config.Drifters.name, pct(Config.Drifters.charmChance), pct(Config.CharmChanceHaul), pct(Config.CharmChanceKill)),
+		Font = Enum.Font.Gotham,
+		TextColor3 = THEME.muted,
+		TextWrapped = true,
+		MaxTextSize = 13,
+		Parent = summary,
+	})
+
+	sectionTitle(Config.Season.name:upper() .. " CHARMS", 2)
+	local grid = gridSection(3, UDim2.new(0, 150, 0, 206))
+	for i, charm in ipairs(Config.Charms) do
+		local owned = state.charms[charm.id] or 0
+		local thisSeason = charm.season == Config.Season.id
+		if owned > 0 or thisSeason then
+			local rarity = Config.PetRarities[charm.rarity]
+			local equipped = table.find(state.equippedCharms, charm.id) ~= nil
+			local box = new("Frame", { BackgroundColor3 = THEME.card, LayoutOrder = i, Parent = grid })
+			corner(box, 10)
+			stroke(box, rarity.color, equipped and 3 or 1.5, equipped and 0 or (owned > 0 and 0.4 or 0.8))
+			gem(box, charm.color, 44, UDim2.new(0.5, 0, 0, 40), owned == 0)
+			if owned > 1 then
+				text({
+					AnchorPoint = Vector2.new(1, 0),
+					Position = UDim2.new(1, -8, 0, 6),
+					Size = UDim2.new(0, 40, 0, 18),
+					Text = "x" .. owned,
+					Font = Enum.Font.GothamBlack,
+					TextXAlignment = Enum.TextXAlignment.Right,
+					MaxTextSize = 15,
+					Parent = box,
+				})
+			end
+			text({
+				Position = UDim2.new(0, 6, 0, 76),
+				Size = UDim2.new(1, -12, 0, 18),
+				Text = owned > 0 and charm.name or "???",
+				Font = Enum.Font.GothamBlack,
+				TextColor3 = owned > 0 and rarity.color or THEME.muted,
+				TextXAlignment = Enum.TextXAlignment.Center,
+				MaxTextSize = 15,
+				Parent = box,
+			})
+			text({
+				Position = UDim2.new(0, 6, 0, 96),
+				Size = UDim2.new(1, -12, 0, 14),
+				Text = rarity.name:upper() .. (thisSeason and "" or "  |  OLD SEASON"),
+				Font = Enum.Font.GothamBold,
+				TextColor3 = rarity.color,
+				TextXAlignment = Enum.TextXAlignment.Center,
+				MaxTextSize = 11,
+				Parent = box,
+			})
+			text({
+				Position = UDim2.new(0, 6, 0, 112),
+				Size = UDim2.new(1, -12, 0, 26),
+				Text = Config.DescribeBonus(charm.bonus),
+				Font = Enum.Font.Gotham,
+				TextColor3 = owned > 0 and THEME.gold or THEME.muted,
+				TextXAlignment = Enum.TextXAlignment.Center,
+				TextWrapped = true,
+				MaxTextSize = 12,
+				Parent = box,
+			})
+			if owned > 0 then
+				local equipButton = button({
+					Position = UDim2.new(0, 8, 0, 142),
+					Size = UDim2.new(1, -16, 0, 28),
+					Text = equipped and "UNEQUIP" or "EQUIP",
+					BackgroundColor3 = equipped and Color3.fromRGB(70, 75, 90) or Color3.fromRGB(40, 170, 90),
+					MaxTextSize = 14,
+					Parent = box,
+				})
+				equipButton.MouseButton1Click:Connect(function()
+					Action:FireServer("EquipCharm", charm.id)
+				end)
+				local spare = owned - (equipped and 1 or 0)
+				local xp = Config.CharmDissolveXp[charm.rarity]
+				local dissolve = button({
+					Position = UDim2.new(0, 8, 0, 174),
+					Size = UDim2.new(1, -16, 0, 24),
+					Text = spare > 0 and ("Dissolve +" .. xp .. " season XP") or "No spare to dissolve",
+					BackgroundColor3 = Color3.fromRGB(45, 50, 65),
+					TextColor3 = spare > 0 and THEME.muted or Color3.fromRGB(90, 100, 115),
+					MaxTextSize = 11,
+					Parent = box,
+				})
+				if spare > 0 then
+					dissolve.MouseButton1Click:Connect(function()
+						if charmArmed[charm.id] then
+							charmArmed[charm.id] = nil
+							Action:FireServer("DissolveCharm", charm.id)
+						else
+							charmArmed[charm.id] = true
+							dissolve.Text = "TAP AGAIN TO DISSOLVE"
+							dissolve.BackgroundColor3 = THEME.danger
+							dissolve.TextColor3 = THEME.text
+							task.delay(3, function()
+								charmArmed[charm.id] = nil
+							end)
+						end
+					end)
+				end
+			else
+				text({
+					Position = UDim2.new(0, 6, 0, 150),
+					Size = UDim2.new(1, -12, 0, 40),
+					Text = "Not found yet. Keep searching the sea!",
+					Font = Enum.Font.Gotham,
+					TextColor3 = THEME.muted,
+					TextXAlignment = Enum.TextXAlignment.Center,
+					TextWrapped = true,
+					MaxTextSize = 12,
+					Parent = box,
+				})
+			end
+		end
+	end
+end
+
 local function renderPets()
+	listLayout()
+	petsTabs()
+	if petsTab == "Charms" then
+		renderCharms()
+		return
+	end
 	panelTitle.Text = "PET TANK"
 	panelSubtitle.Text = string.format("Pets %d/%d  |  Equipped %d/%d", #state.pets, Config.MaxPets, #state.equipped, state.maxEquipped)
-	listLayout()
 
 	-- bonus summary
 	local summary = card(52, 1, THEME.gold)
@@ -1274,8 +1483,54 @@ local function renderPets()
 		})
 		return
 	end
-	local petGrid = gridSection(5, UDim2.new(0, 150, 0, 214))
-	local sorted = table.clone(state.pets)
+	-- filter chips: ALL, EQUIPPED, then each rarity you own (with counts)
+	local counts = {}
+	for _, pet in ipairs(state.pets) do
+		local def = Config.GetPet(pet.id)
+		if def then
+			counts[def.rarity] = (counts[def.rarity] or 0) + 1
+		end
+	end
+	local chips = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 30),
+		BackgroundTransparency = 1,
+		LayoutOrder = 5,
+		Parent = content,
+	})
+	new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), Parent = chips })
+	local filters = { { key = "All", label = "ALL " .. #state.pets, color = THEME.accent },
+		{ key = "Equipped", label = "EQUIPPED " .. #state.equipped, color = THEME.good } }
+	for r, rarity in ipairs(Config.PetRarities) do
+		if counts[r] then
+			table.insert(filters, { key = r, label = rarity.name:upper() .. " " .. counts[r], color = rarity.color })
+		end
+	end
+	for i, f in ipairs(filters) do
+		local selected = petFilter == f.key
+		local chip = button({
+			Size = UDim2.new(0, 96, 1, 0),
+			Text = f.label,
+			LayoutOrder = i,
+			BackgroundColor3 = selected and f.color or THEME.bg,
+			TextColor3 = selected and THEME.bg or f.color,
+			MaxTextSize = 12,
+			Parent = chips,
+		})
+		chip.MouseButton1Click:Connect(function()
+			petFilter = f.key
+			renderPanelRef()
+		end)
+	end
+
+	local petGrid = gridSection(6, UDim2.new(0, 150, 0, 214))
+	local sorted = {}
+	for _, pet in ipairs(state.pets) do
+		local def = Config.GetPet(pet.id)
+		local equipped = table.find(state.equipped, pet.uid) ~= nil
+		if def and (petFilter == "All" or (petFilter == "Equipped" and equipped) or petFilter == def.rarity) then
+			table.insert(sorted, pet)
+		end
+	end
 	table.sort(sorted, function(a, b)
 		local ea, eb = table.find(state.equipped, a.uid) ~= nil, table.find(state.equipped, b.uid) ~= nil
 		if ea ~= eb then
@@ -1708,8 +1963,6 @@ declineButton.MouseButton1Click:Connect(function()
 	requestPopup.Visible = false
 end)
 
-local renderPanelRef -- set below
-
 ---------------------------------------------------------------------------
 -- SHARED BITS FOR THE NEW PANELS
 ---------------------------------------------------------------------------
@@ -1730,7 +1983,7 @@ local function secondsLeft(value)
 end
 
 -- 0.15 -> 15 (rounded, so 0.45 never shows as 44)
-local function pct(fraction)
+pct = function(fraction)
 	return math.floor(fraction * 100 + 0.5)
 end
 
@@ -1899,9 +2152,11 @@ local function questRows(list, scope, startOrder)
 			text({
 				Position = UDim2.new(0, 14, 0, 50),
 				Size = UDim2.new(1, -180, 0, 16),
-				Text = string.format('%d/%d   <font color="%s">+%s coins</font>  <font color="%s">+%d pearls</font>  <font color="%s">+%d season XP</font>',
-					q.progress, def.target, "#" .. THEME.gold:ToHex(), Config.FormatNumber(def.reward.coins * state.level),
-					"#" .. THEME.pearl:ToHex(), def.reward.pearls, "#" .. Color3.fromRGB(255, 90, 220):ToHex(), def.reward.seasonXp),
+				Text = string.format('%d/%d   <font color="%s">+%s coins</font>  <font color="%s">+%d pearls</font>  <font color="%s">+%s XP</font>  <font color="%s">+%d season XP</font>',
+					q.progress, def.target, "#" .. THEME.gold:ToHex(), Config.FormatNumber(def.reward.coins * math.min(q.level or state.level, state.level)),
+					"#" .. THEME.pearl:ToHex(), def.reward.pearls,
+					"#" .. THEME.accent:ToHex(), Config.FormatNumber(math.floor(Config.XPToNext(state.level) * (def.reward.levels or 0))),
+					"#" .. Color3.fromRGB(255, 90, 220):ToHex(), def.reward.seasonXp),
 				RichText = true,
 				Font = Enum.Font.GothamMedium,
 				TextColor3 = THEME.muted,
@@ -2111,7 +2366,7 @@ local function renderSeason()
 	text({
 		Size = UDim2.new(1, -24, 0, 28),
 		Position = UDim2.new(0, 12, 0.5, -14),
-		Text = "Earn season XP from hauls, creatures, quests and events. Prestige to restart with bigger rewards and upgraded season pets.",
+		Text = "Earn season XP from hauls, creatures, quests, events and " .. Config.Drifters.name .. "s floating in the sea (they can hold season Charms!). Prestige to restart with bigger rewards and upgraded season pets.",
 		Font = Enum.Font.Gotham,
 		TextColor3 = THEME.muted,
 		TextWrapped = true,
@@ -2123,18 +2378,39 @@ end
 ---------------------------------------------------------------------------
 -- REBIRTH PANEL
 ---------------------------------------------------------------------------
+local function bonusLine(b)
+	return string.format("+%d%% coins   +%d%% XP   +%d%% luck   +%d%% damage   +%d health",
+		pct(b.coins), pct(b.xp), pct(b.luck), pct(b.damage), b.health)
+end
+
+local function robuxButton(parent, position, size, key, label, color)
+	local product = Config.GetProductByKey(key)
+	local b = button({
+		Position = position,
+		Size = size,
+		Text = label .. "  R$" .. product.price,
+		BackgroundColor3 = color,
+		MaxTextSize = 14,
+		Parent = parent,
+	})
+	b.MouseButton1Click:Connect(function()
+		Action:FireServer("Buy", key)
+	end)
+	return b
+end
+
 local function renderRebirth()
 	local rb = Config.Rebirth
 	local r = state.rebirths
 	panelTitle.Text = "REBIRTH"
-	panelSubtitle.Text = "Rebirths " .. r .. "/" .. rb.max
+	panelSubtitle.Text = "Rebirth " .. r .. " / " .. rb.max
 	listLayout()
 
-	local current = card(64, 1, THEME.gold)
+	local current = card(62, 1, THEME.gold)
 	text({
 		Position = UDim2.new(0, 14, 0, 8),
 		Size = UDim2.new(1, -28, 0, 20),
-		Text = "YOUR REBIRTH BONUSES",
+		Text = r > 0 and ("YOUR BONUSES FROM " .. r .. " REBIRTH" .. (r > 1 and "S" or "")) or "NO REBIRTHS YET",
 		Font = Enum.Font.GothamBlack,
 		TextColor3 = THEME.gold,
 		MaxTextSize = 16,
@@ -2143,8 +2419,7 @@ local function renderRebirth()
 	text({
 		Position = UDim2.new(0, 14, 0, 34),
 		Size = UDim2.new(1, -28, 0, 18),
-		Text = string.format("+%d%% coins   +%d%% XP   +%d%% luck   +%d%% damage   +%d health",
-			pct(r * rb.coinsBonus), pct(r * rb.xpBonus), pct(r * rb.luckBonus), pct(r * rb.damageBonus), r * rb.healthBonus),
+		Text = r > 0 and bonusLine(Config.RebirthTotals(r)) or "Rebirth to get permanent bonuses that stack up every time.",
 		Font = Enum.Font.GothamMedium,
 		MaxTextSize = 14,
 		Parent = current,
@@ -2164,9 +2439,10 @@ local function renderRebirth()
 		return
 	end
 
+	-- progress toward the next one
 	local needLevel, needCoins = Config.RebirthRequirement(r)
 	local levelOk, coinsOk = state.level >= needLevel, state.coins >= needCoins
-	local req = card(96, 2)
+	local req = card(104, 2)
 	text({
 		Position = UDim2.new(0, 14, 0, 8),
 		Size = UDim2.new(1, -28, 0, 20),
@@ -2177,28 +2453,30 @@ local function renderRebirth()
 		Parent = req,
 	})
 	text({
-		Position = UDim2.new(0, 14, 0, 36),
-		Size = UDim2.new(1, -28, 0, 20),
-		Text = string.format("Level %d   (you: %d)", needLevel, state.level),
-		TextColor3 = levelOk and THEME.good or THEME.danger,
-		MaxTextSize = 16,
+		Position = UDim2.new(0, 14, 0, 32),
+		Size = UDim2.new(1, -28, 0, 18),
+		Text = string.format("Level %d / %d", math.min(state.level, needLevel), needLevel),
+		TextColor3 = levelOk and THEME.good or THEME.text,
+		MaxTextSize = 15,
 		Parent = req,
 	})
+	bar(req, UDim2.new(0, 14, 0, 52), UDim2.new(1, -28, 0, 8), state.level / needLevel, levelOk and THEME.good or THEME.accent)
 	text({
-		Position = UDim2.new(0, 14, 0, 62),
-		Size = UDim2.new(1, -28, 0, 20),
-		Text = string.format("%s coins   (you: %s)", Config.FormatNumber(needCoins), Config.FormatNumber(state.coins)),
-		TextColor3 = coinsOk and THEME.good or THEME.danger,
-		MaxTextSize = 16,
+		Position = UDim2.new(0, 14, 0, 64),
+		Size = UDim2.new(1, -28, 0, 18),
+		Text = string.format("Coins %s / %s", Config.FormatNumber(math.min(state.coins, needCoins)), Config.FormatNumber(needCoins)),
+		TextColor3 = coinsOk and THEME.good or THEME.text,
+		MaxTextSize = 15,
 		Parent = req,
 	})
+	bar(req, UDim2.new(0, 14, 0, 84), UDim2.new(1, -28, 0, 8), state.coins / needCoins, coinsOk and THEME.good or THEME.gold)
 
-	local info = card(112, 3, THEME.muted)
+	local nextBonus = Config.RebirthBonusFor(r + 1)
+	local info = card(116, 3, THEME.muted)
 	text({
 		Position = UDim2.new(0, 14, 0, 8),
-		Size = UDim2.new(1, -28, 0, 18),
-		Text = string.format("YOU GAIN: +%d%% coins, +%d%% XP, +%d%% luck, +%d%% damage, +%d health (forever)",
-			pct(rb.coinsBonus), pct(rb.xpBonus), pct(rb.luckBonus), pct(rb.damageBonus), rb.healthBonus),
+		Size = UDim2.new(1, -28, 0, 34),
+		Text = "YOU GAIN: " .. bonusLine(nextBonus) .. "   +" .. nextBonus.pearls .. " Pearls",
 		Font = Enum.Font.GothamBold,
 		TextColor3 = THEME.good,
 		TextWrapped = true,
@@ -2206,21 +2484,19 @@ local function renderRebirth()
 		Parent = info,
 	})
 	text({
-		Position = UDim2.new(0, 14, 0, 40),
-		Size = UDim2.new(1, -28, 0, 30),
+		Position = UDim2.new(0, 14, 0, 46),
+		Size = UDim2.new(1, -28, 0, 18),
 		Text = "YOU LOSE: your level, coins, subs and shop weapons.",
 		Font = Enum.Font.GothamBold,
 		TextColor3 = THEME.danger,
-		TextWrapped = true,
 		MaxTextSize = 14,
 		Parent = info,
 	})
 	text({
-		Position = UDim2.new(0, 14, 0, 72),
-		Size = UDim2.new(1, -28, 0, 32),
-		Text = "YOU KEEP: ships, fragments, pets, eggs, pearls, season progress, season weapons, game passes and boosts.",
+		Position = UDim2.new(0, 14, 0, 68),
+		Size = UDim2.new(1, -28, 0, 40),
+		Text = "YOU KEEP: ships, fragments, pets, charms, eggs, pearls, season progress, season weapons, passes and boosts. Each rebirth gives more than the last, and the next one needs more.",
 		Font = Enum.Font.Gotham,
-		TextColor3 = THEME.text,
 		TextWrapped = true,
 		MaxTextSize = 13,
 		Parent = info,
@@ -2242,27 +2518,81 @@ local function renderRebirth()
 			Action:FireServer("Rebirth")
 		end)
 	end
+
+	-- faster with Robux
+	local fast = card(104, 5, THEME.gold)
+	text({
+		Position = UDim2.new(0, 14, 0, 8),
+		Size = UDim2.new(1, -28, 0, 20),
+		Text = "IN A HURRY?  Daily quests also give XP and coins toward rebirth.",
+		Font = Enum.Font.GothamBlack,
+		TextColor3 = THEME.gold,
+		MaxTextSize = 14,
+		Parent = fast,
+	})
+	robuxButton(fast, UDim2.new(0, 10, 0, 40), UDim2.new(0.333, -14, 0, 52), "RebirthRush", "2x COINS+XP 30m", Color3.fromRGB(40, 140, 200))
+	robuxButton(fast, UDim2.new(0.333, 4, 0, 40), UDim2.new(0.333, -8, 0, 52), "LevelPack", "+3 LEVELS", Color3.fromRGB(40, 170, 90))
+	robuxButton(fast, UDim2.new(0.666, 4, 0, 40), UDim2.new(0.334, -14, 0, 52), "InstantRebirth", "REBIRTH NOW", Color3.fromRGB(230, 140, 40))
 end
 
 ---------------------------------------------------------------------------
 -- STORE PANEL (Robux)
 ---------------------------------------------------------------------------
-local function storeCard(parent, order, item, owned, extra)
+local STORE_ACCENTS = {
+	boost = Color3.fromRGB(110, 235, 140),
+	rebirth = Color3.fromRGB(255, 160, 60),
+	season = Color3.fromRGB(255, 90, 220),
+	pass = Color3.fromRGB(255, 205, 80),
+}
+
+local function boostTimeLeft(boost)
+	if type(boost) == "table" then
+		local least = math.huge
+		for _, which in ipairs(boost) do
+			least = math.min(least, secondsLeft(state.boostsLeft[which]))
+		end
+		return least == math.huge and 0 or least
+	end
+	return secondsLeft(state.boostsLeft[boost])
+end
+
+local function storeCard(parent, order, item, owned, accent, extra, badge)
 	local box = new("Frame", { BackgroundColor3 = THEME.card, LayoutOrder = order, Parent = parent })
-	corner(box, 10)
-	stroke(box, owned and THEME.good or THEME.gold, 1.5, 0.3)
+	corner(box, 12)
+	stroke(box, owned and THEME.good or accent, owned and 2 or 1.5, owned and 0.2 or 0.35)
+	local stripe = new("Frame", { Size = UDim2.new(1, 0, 0, 6), BackgroundColor3 = accent, BorderSizePixel = 0, Parent = box })
+	corner(stripe, 3)
+	if badge then
+		local tag = new("Frame", {
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -8, 0, 12),
+			Size = UDim2.new(0, 84, 0, 20),
+			BackgroundColor3 = accent,
+			Parent = box,
+		})
+		corner(tag, 10)
+		text({
+			Size = UDim2.fromScale(1, 1),
+			Text = badge,
+			Font = Enum.Font.GothamBlack,
+			TextColor3 = THEME.bg,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			MaxTextSize = 11,
+			Parent = tag,
+		})
+	end
 	text({
-		Position = UDim2.new(0, 10, 0, 8),
-		Size = UDim2.new(1, -20, 0, 20),
+		Position = UDim2.new(0, 10, 0, 14),
+		Size = UDim2.new(1, badge and -100 or -20, 0, 20),
 		Text = item.name,
 		Font = Enum.Font.GothamBlack,
-		TextColor3 = THEME.gold,
+		TextColor3 = accent,
 		MaxTextSize = 16,
 		Parent = box,
 	})
 	text({
-		Position = UDim2.new(0, 10, 0, 32),
-		Size = UDim2.new(1, -20, 0, 44),
+		Position = UDim2.new(0, 10, 0, 38),
+		Size = UDim2.new(1, -20, 0, 50),
 		Text = item.desc .. (extra or ""),
 		Font = Enum.Font.Gotham,
 		TextColor3 = THEME.text,
@@ -2290,34 +2620,42 @@ end
 
 local function renderStore()
 	panelTitle.Text = "STORE"
-	panelSubtitle.Text = state.studio and "Studio: unset passes are free to test" or "Thank you for supporting the game!"
+	panelSubtitle.Text = state.studio and "Studio test mode: items without an id are free" or "Thank you for supporting the game!"
 	listLayout()
 
-	sectionTitle("BOOSTS (stack to add time)", 1)
-	local boosts = gridSection(2, UDim2.new(0.333, -6, 0, 132))
-	local seasonGrid
-	local order = 0
-	for _, product in ipairs(Config.Products) do
-		order += 1
+	sectionTitle("BOOSTS  (buy again to add more time)", 1)
+	local boosts = gridSection(2, UDim2.new(0.25, -6, 0, 150))
+	for i, product in ipairs(Config.Products) do
 		if product.boost then
-			local left = secondsLeft(state.boostsLeft[product.boost])
-			storeCard(boosts, order, product, false, left > 0 and ("\nActive: " .. formatTime(left) .. " left") or "")
+			local left = boostTimeLeft(product.boost)
+			storeCard(boosts, i, product, false, STORE_ACCENTS.boost, left > 0 and ("\nActive: " .. formatTime(left)) or "",
+				type(product.boost) == "table" and "COMBO" or nil)
 		end
 	end
-	sectionTitle("SEASON PASSES (" .. Config.Season.name .. ")", 3)
-	seasonGrid = gridSection(4, UDim2.new(0.5, -6, 0, 132))
-	for _, product in ipairs(Config.Products) do
-		order += 1
+
+	sectionTitle("REBIRTH FASTER", 3)
+	local rebirthGrid = gridSection(4, UDim2.new(0.5, -6, 0, 150))
+	for i, product in ipairs(Config.Products) do
+		if product.levels or product.rebirth then
+			storeCard(rebirthGrid, i, product, false, STORE_ACCENTS.rebirth)
+		end
+	end
+
+	sectionTitle("SEASON PASSES  -  " .. Config.Season.name, 5)
+	local seasonGrid = gridSection(6, UDim2.new(0.5, -6, 0, 150))
+	for i, product in ipairs(Config.Products) do
 		if product.seasonPass then
 			local owned = (product.seasonPass == "premium" and (state.season.premium or state.season.mystic))
 				or (product.seasonPass == "mystic" and state.season.mystic)
-			storeCard(seasonGrid, order, product, owned)
+			storeCard(seasonGrid, i, product, owned, product.seasonPass == "mystic" and STORE_ACCENTS.season or STORE_ACCENTS.pass, nil,
+				product.seasonPass == "mystic" and "BEST VALUE" or nil)
 		end
 	end
-	sectionTitle("GAME PASSES (forever)", 5)
-	local passes = gridSection(6, UDim2.new(0.333, -6, 0, 132))
+
+	sectionTitle("GAME PASSES  (yours forever)", 7)
+	local passes = gridSection(8, UDim2.new(0.333, -6, 0, 150))
 	for i, pass in ipairs(Config.GamePasses) do
-		storeCard(passes, i, pass, state.passes[pass.key] == true)
+		storeCard(passes, i, pass, state.passes[pass.key] == true, STORE_ACCENTS.pass)
 	end
 end
 
@@ -2456,7 +2794,7 @@ local function petsSignature()
 	for _, egg in ipairs(Config.Eggs) do
 		affordable[egg.id] = (egg.currency == "Pearls" and state.pearls or state.coins) >= egg.cost
 	end
-	return HttpService:JSONEncode({ state.pets, state.equipped, state.eggs, affordable })
+	return HttpService:JSONEncode({ state.pets, state.equipped, state.eggs, affordable, state.charms, state.equippedCharms, petsTab, petFilter })
 end
 
 local function renderPanel(force)
@@ -2576,8 +2914,35 @@ local function hex(color)
 	return "#" .. color:ToHex()
 end
 
+-- Short UI sounds using sounds built into Roblox (swap in your own uploads later)
+local SoundService = game:GetService("SoundService")
+local PING = "rbxasset://sounds/electronicpingshort.wav"
+local function playSound(id, volume, pitch)
+	local sound = new("Sound", { SoundId = id, Volume = volume or 0.4, PlaybackSpeed = pitch or 1, Parent = SoundService })
+	SoundService:PlayLocalSound(sound)
+	task.delay(4, function()
+		sound:Destroy()
+	end)
+end
+local SOUND_FOR = {
+	levelup = { 0.6, 1.3 },
+	ship = { 0.7, 0.8 },
+	hatch = { 0.6, 1.1 },
+	purchase = { 0.5, 1.2 },
+	rebirth = { 0.7, 0.7 },
+	seasonTier = { 0.5, 1.4 },
+	charm = { 0.5, 1.5 },
+	questDone = { 0.4, 1.2 },
+}
+
 Notify.OnClientEvent:Connect(function(msg)
 	local kind = msg.kind
+	local sound = SOUND_FOR[kind]
+	if sound then
+		playSound(PING, sound[1], sound[2])
+	elseif kind == "loot" and (msg.isNew or msg.rarity >= 3) then
+		playSound(PING, 0.3 + msg.rarity * 0.06, 0.8 + msg.rarity * 0.12)
+	end
 	if kind == "loot" then
 		local rarity = Config.Rarities[msg.rarity]
 		local ship = Config.GetShip(msg.ship)
@@ -2623,6 +2988,19 @@ Notify.OnClientEvent:Connect(function(msg)
 		toast(msg.text, THEME.accent, 3)
 	elseif kind == "purchase" then
 		toast(msg.text, THEME.good, 5)
+	elseif kind == "charm" then
+		local charm = Config.GetCharm(msg.id)
+		if charm then
+			local color = Config.PetRarities[charm.rarity].color
+			toast(string.format('%s <font color="#%s">%s</font> (%s)%s', msg.isNew and "NEW CHARM!" or "Charm:", color:ToHex(), charm.name,
+				Config.DescribeBonus(charm.bonus), msg.isNew and "  Equipped it for you." or ""), color, 5)
+			if charm.rarity >= 4 then
+				showSplash(charm.name:upper() .. "!", color)
+			end
+		end
+	elseif kind == "drifter" then
+		toast(string.format('%s opened: <font color="#%s">+%s coins</font> +%d season XP', Config.Drifters.name, THEME.gold:ToHex(),
+			Config.FormatNumber(msg.coins), msg.seasonXp), Config.Drifters.color, 3)
 	elseif kind == "seasonTier" then
 		showSplash("SEASON TIER " .. msg.tier .. "!", Color3.fromRGB(255, 90, 220))
 	elseif kind == "seasonRewards" then
@@ -2637,11 +3015,11 @@ Notify.OnClientEvent:Connect(function(msg)
 	elseif kind == "questDone" then
 		toast("Quest complete: " .. msg.text .. ". Claim it in QUESTS!", THEME.good, 5)
 	elseif kind == "questClaimed" then
-		toast(string.format('Quest reward: <font color="#%s">+%s coins</font> +%d pearls +%d season XP',
-			THEME.gold:ToHex(), Config.FormatNumber(msg.coins), msg.pearls, msg.seasonXp), THEME.good, 4)
+		toast(string.format('Quest reward: <font color="#%s">+%s coins</font> +%d pearls +%s XP +%d season XP',
+			THEME.gold:ToHex(), Config.FormatNumber(msg.coins), msg.pearls, Config.FormatNumber(msg.xp or 0), msg.seasonXp), THEME.good, 4)
 	elseif kind == "rebirth" then
 		showSplash("REBIRTH " .. msg.rebirths .. "!", THEME.gold)
-		toast("Your bonuses are permanent. Time to dive again!", THEME.gold, 6)
+		toast("+" .. (msg.pearls or 0) .. " Pearls! Your rebirth bonuses are permanent. Time to dive again!", THEME.gold, 6)
 	elseif kind == "kill" then
 		if msg.boss then
 			showSplash("LEVIATHAN SLAIN!", Color3.fromRGB(60, 255, 230))
