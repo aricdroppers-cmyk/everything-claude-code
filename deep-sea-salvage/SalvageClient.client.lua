@@ -512,13 +512,13 @@ end
 ---------------------------------------------------------------------------
 local panel = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0.5),
-	Position = UDim2.fromScale(0.5, 0.53),
-	Size = UDim2.fromScale(0.6, 0.66),
+	Position = UDim2.fromScale(0.5, 0.56), -- low enough that the event/weather banners stay visible above it
+	Size = UDim2.fromScale(0.6, 0.64),
 	BackgroundColor3 = THEME.panel,
 	Visible = false,
 	Parent = gui,
 })
-new("UISizeConstraint", { MaxSize = Vector2.new(720, 470), MinSize = Vector2.new(320, 260), Parent = panel })
+new("UISizeConstraint", { MaxSize = Vector2.new(720, 450), MinSize = Vector2.new(320, 260), Parent = panel })
 corner(panel, 20)
 stroke(panel, INK, 3.5, 0)
 gradient(panel, Color3.fromRGB(255, 255, 255), Color3.fromRGB(208, 224, 246))
@@ -3130,7 +3130,7 @@ local function renderStore()
 	end)
 
 	sectionTitle("BOOSTS  (buy again to add more time)", 1)
-	local boosts = gridSection(2, UDim2.new(0.25, -6, 0, 176))
+	local boosts = gridSection(2, UDim2.new(0.5, -6, 0, 150))
 	for i, product in ipairs(Config.Products) do
 		if product.boost then
 			local left = boostTimeLeft(product.boost)
