@@ -23,19 +23,35 @@ local Action = remotes:WaitForChild("Action")
 local player = Players.LocalPlayer
 local state = nil
 
+-- One dark "ink" color outlines everything (borders + text) for a clean, chunky look
+local INK = Color3.fromRGB(24, 32, 58)
 local THEME = {
-	bg = Color3.fromRGB(10, 24, 40),
-	panel = Color3.fromRGB(16, 38, 62),
-	card = Color3.fromRGB(24, 52, 82),
-	cardHover = Color3.fromRGB(32, 66, 102),
+	bg = Color3.fromRGB(36, 54, 96), -- dark chips, bars and pills
+	panel = Color3.fromRGB(238, 245, 255), -- light panel background
+	card = Color3.fromRGB(76, 148, 236), -- blue tiles
+	cardHover = Color3.fromRGB(102, 176, 252),
+	ribbon = Color3.fromRGB(58, 132, 240), -- panel title ribbon
 	accent = Color3.fromRGB(60, 225, 210),
-	gold = Color3.fromRGB(255, 205, 80),
-	pearl = Color3.fromRGB(235, 230, 255),
-	text = Color3.fromRGB(235, 245, 250),
-	muted = Color3.fromRGB(140, 168, 190),
-	danger = Color3.fromRGB(255, 95, 95),
-	good = Color3.fromRGB(110, 235, 140),
+	gold = Color3.fromRGB(255, 205, 70),
+	pearl = Color3.fromRGB(235, 225, 255),
+	text = Color3.fromRGB(255, 255, 255),
+	muted = Color3.fromRGB(205, 225, 250),
+	danger = Color3.fromRGB(255, 85, 95),
+	good = Color3.fromRGB(110, 235, 120),
+	buy = Color3.fromRGB(80, 210, 90), -- green price buttons
 }
+
+-- Icons are emoji (Roblox draws them in text). Swap for uploaded images later if you like.
+local ICONS = {
+	DAILY = "🎁", FLEET = "⚓", SHOP = "🛒", PETS = "🐾", LOGBOOK = "📖", QUESTS = "📜",
+	SEASON = "🏆", STORE = "💎", REBIRTH = "🔄", TRADE = "🤝", ["MY BAY"] = "🏠",
+	coins = "💰", pearls = "💎", level = "⭐",
+	DoubleCoins = "💰", LuckyDiver = "🍀", AutoHaul = "⚓", PetSlots = "🐾", VIP = "👑",
+	BigStorage = "🎒", BigTank = "🐠", DoubleDamage = "💥",
+	BoostCoins = "💰", BoostLuck = "🍀", BoostXP = "⭐", RebirthRush = "⚡", LevelPack = "🚀",
+	InstantRebirth = "🔄", SeasonPremium = "🎫", SeasonMystic = "🔮",
+}
+local ROBUX = utf8.char(0xE002) -- Roblox's built-in Robux symbol
 
 local function now()
 	return workspace:GetServerTimeNow()
@@ -61,39 +77,79 @@ local function corner(parent, radius)
 	return new("UICorner", { CornerRadius = UDim.new(0, radius or 10), Parent = parent })
 end
 
+-- Border outline. Reuses an existing border on the same object (only one shows anyway).
 local function stroke(parent, color, thickness, transparency)
+	for _, child in ipairs(parent:GetChildren()) do
+		if child:IsA("UIStroke") and child.ApplyStrokeMode == Enum.ApplyStrokeMode.Border then
+			child.Color = color or INK
+			child.Thickness = math.max(thickness or 2.5, 2)
+			child.Transparency = transparency or 0
+			return child
+		end
+	end
 	return new("UIStroke", {
-		Color = color or THEME.accent,
-		Thickness = thickness or 2,
-		Transparency = transparency or 0.3,
+		Color = color or INK,
+		Thickness = math.max(thickness or 2.5, 2),
+		Transparency = transparency or 0,
 		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+		LineJoinMode = Enum.LineJoinMode.Round,
 		Parent = parent,
+	})
+end
+
+-- dark outline around text: readable on any background
+local function outline(label, size)
+	return new("UIStroke", {
+		Color = INK,
+		Thickness = size >= 22 and 2.6 or (size >= 16 and 2 or 1.4),
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual,
+		LineJoinMode = Enum.LineJoinMode.Round,
+		Parent = label,
 	})
 end
 
 local function text(props)
 	local defaults = {
 		BackgroundTransparency = 1,
-		Font = Enum.Font.GothamBold,
+		Font = Enum.Font.FredokaOne,
 		TextColor3 = THEME.text,
 		TextScaled = true,
 		TextXAlignment = Enum.TextXAlignment.Left,
 	}
 	for key, value in pairs(props) do
-		if key ~= "MaxTextSize" then
+		if key ~= "MaxTextSize" and key ~= "NoOutline" then
 			defaults[key] = value
 		end
 	end
 	local label = new("TextLabel", defaults)
-	new("UITextSizeConstraint", { MaxTextSize = props.MaxTextSize or 22, Parent = label })
+	local size = props.MaxTextSize or 22
+	new("UITextSizeConstraint", { MaxTextSize = size, Parent = label })
+	if not props.NoOutline then
+		outline(label, size)
+	end
 	return label
 end
 
+local function gradient(parent, top, bottom)
+	return new("UIGradient", {
+		Color = ColorSequence.new(top, bottom),
+		Rotation = 90,
+		Parent = parent,
+	})
+end
+
+-- light-on-top shading that makes a flat color look like a chunky tile
+local function shade(parent)
+	return gradient(parent, Color3.fromRGB(255, 255, 255), Color3.fromRGB(178, 186, 206))
+end
+
+-- Chunky button: shaded fill, ink border, outlined text. The text lives in a
+-- child label so it can have its own outline; setting btn.Text still works.
 local function button(props)
 	local defaults = {
 		BackgroundColor3 = THEME.card,
 		AutoButtonColor = true,
-		Font = Enum.Font.GothamBlack,
+		Font = Enum.Font.FredokaOne,
 		TextColor3 = THEME.text,
 		TextScaled = true,
 	}
@@ -103,24 +159,49 @@ local function button(props)
 		end
 	end
 	local btn = new("TextButton", defaults)
-	corner(btn, 8)
-	new("UITextSizeConstraint", { MaxTextSize = props.MaxTextSize or 20, Parent = btn })
+	btn.TextTransparency = 1
+	corner(btn, 12)
+	shade(btn)
+	stroke(btn, INK, 2.5, 0)
 	new("UIPadding", {
-		PaddingLeft = UDim.new(0, 6),
-		PaddingRight = UDim.new(0, 6),
+		PaddingLeft = UDim.new(0, 8),
+		PaddingRight = UDim.new(0, 8),
 		PaddingTop = UDim.new(0, 4),
-		PaddingBottom = UDim.new(0, 4),
+		PaddingBottom = UDim.new(0, 5),
 		Parent = btn,
 	})
-	return btn
-end
-
-local function gradient(parent, top, bottom)
-	return new("UIGradient", {
-		Color = ColorSequence.new(top, bottom),
-		Rotation = 90,
-		Parent = parent,
+	local label = text({
+		Name = "Label",
+		Size = UDim2.fromScale(1, 1),
+		Text = btn.Text,
+		Font = btn.Font,
+		TextColor3 = btn.TextColor3,
+		RichText = btn.RichText,
+		TextXAlignment = props.TextXAlignment or Enum.TextXAlignment.Center,
+		MaxTextSize = props.MaxTextSize or 20,
+		Parent = btn,
 	})
+	btn:GetPropertyChangedSignal("Text"):Connect(function()
+		label.Text = btn.Text
+	end)
+	btn:GetPropertyChangedSignal("TextColor3"):Connect(function()
+		label.TextColor3 = btn.TextColor3
+	end)
+	btn:GetPropertyChangedSignal("RichText"):Connect(function()
+		label.RichText = btn.RichText
+	end)
+	-- little squish when pressed
+	local squish = new("UIScale", { Parent = btn })
+	btn.MouseButton1Down:Connect(function()
+		squish.Scale = 0.94
+	end)
+	btn.MouseButton1Up:Connect(function()
+		squish.Scale = 1
+	end)
+	btn.MouseLeave:Connect(function()
+		squish.Scale = 1
+	end)
+	return btn
 end
 
 ---------------------------------------------------------------------------
@@ -146,82 +227,107 @@ local topBar = new("Frame", {
 new("UIListLayout", {
 	FillDirection = Enum.FillDirection.Horizontal,
 	HorizontalAlignment = Enum.HorizontalAlignment.Center,
-	Padding = UDim.new(0, 10),
+	VerticalAlignment = Enum.VerticalAlignment.Center,
+	Padding = UDim.new(0, 26),
+	SortOrder = Enum.SortOrder.LayoutOrder,
 	Parent = topBar,
 })
 
-local function currencyPill(color, symbol, order)
-	local pill = new("Frame", {
-		Size = UDim2.new(0, 160, 1, 0),
-		BackgroundColor3 = THEME.bg,
-		BackgroundTransparency = 0.15,
+local openStoreRef -- set once the panels exist
+
+-- white pill with an icon bubble on the left (and an optional green +)
+local function hudPill(width, order, iconText, iconColor, withPlus)
+	local frame = new("Frame", {
+		Size = UDim2.new(0, width, 1, 0),
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
 		LayoutOrder = order,
 		Parent = topBar,
 	})
-	corner(pill, 22)
-	stroke(pill, color, 2, 0.2)
+	corner(frame, 22)
+	gradient(frame, Color3.fromRGB(255, 255, 255), Color3.fromRGB(222, 230, 244))
+	stroke(frame, INK, 3, 0)
 	local icon = new("Frame", {
-		Size = UDim2.new(0, 32, 0, 32),
-		Position = UDim2.new(0, 6, 0.5, -16),
-		BackgroundColor3 = color,
-		Parent = pill,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0, 6, 0.5, 0),
+		Size = UDim2.new(0, 44, 0, 44),
+		BackgroundColor3 = iconColor,
+		ZIndex = 2,
+		Parent = frame,
 	})
-	corner(icon, 16)
-	stroke(icon, Color3.new(1, 1, 1), 1.5, 0.5)
+	corner(icon, 22)
+	shade(icon)
+	stroke(icon, INK, 3, 0)
 	text({
 		Size = UDim2.fromScale(1, 1),
-		Text = symbol,
-		Font = Enum.Font.GothamBlack,
-		TextColor3 = THEME.bg,
+		Text = iconText,
 		TextXAlignment = Enum.TextXAlignment.Center,
+		NoOutline = true,
+		MaxTextSize = 26,
+		ZIndex = 3,
 		Parent = icon,
 	})
+	if withPlus then
+		local plus = button({
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -5, 0.5, 0),
+			Size = UDim2.new(0, 30, 0, 30),
+			Text = "+",
+			BackgroundColor3 = THEME.buy,
+			MaxTextSize = 22,
+			Parent = frame,
+		})
+		plus.MouseButton1Click:Connect(function()
+			if openStoreRef then
+				openStoreRef()
+			end
+		end)
+	end
+	return frame
+end
+
+local function pillValue(parent, rightGap)
 	return text({
-		Size = UDim2.new(1, -52, 0.7, 0),
-		Position = UDim2.new(0, 46, 0.15, 0),
+		Position = UDim2.new(0, 34, 0.15, 0),
+		Size = UDim2.new(1, -34 - rightGap, 0.7, 0),
 		Text = "0",
-		Font = Enum.Font.GothamBlack,
+		TextColor3 = INK,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		NoOutline = true,
 		MaxTextSize = 24,
-		Parent = pill,
+		Parent = parent,
 	})
 end
 
-local coinsLabel = currencyPill(THEME.gold, "$", 1)
-local pearlsLabel = currencyPill(THEME.pearl, "P", 2)
+local coinsLabel = pillValue(hudPill(160, 1, ICONS.coins, THEME.gold, true), 38)
+local pearlsLabel = pillValue(hudPill(140, 2, ICONS.pearls, Color3.fromRGB(190, 160, 255), true), 38)
 
 -- Level pill with XP bar
-local levelPill = new("Frame", {
-	Size = UDim2.new(0, 150, 1, 0),
-	BackgroundColor3 = THEME.bg,
-	BackgroundTransparency = 0.15,
-	LayoutOrder = 0,
-	Parent = topBar,
-})
-corner(levelPill, 22)
-stroke(levelPill, THEME.accent, 2, 0.2)
+local levelPill = hudPill(150, 0, ICONS.level, THEME.accent, false)
 local levelLabel = text({
-	Size = UDim2.new(1, -24, 0, 22),
-	Position = UDim2.new(0, 12, 0, 4),
+	Size = UDim2.new(1, -40, 0, 20),
+	Position = UDim2.new(0, 30, 0, 3),
 	Text = "Lv 1",
-	Font = Enum.Font.GothamBlack,
-	TextColor3 = THEME.accent,
+	TextColor3 = INK,
 	TextXAlignment = Enum.TextXAlignment.Center,
-	MaxTextSize = 20,
+	NoOutline = true,
+	MaxTextSize = 19,
 	Parent = levelPill,
 })
 local xpBar = new("Frame", {
-	Size = UDim2.new(1, -28, 0, 8),
-	Position = UDim2.new(0, 14, 1, -14),
-	BackgroundColor3 = Color3.fromRGB(30, 50, 70),
+	Size = UDim2.new(1, -48, 0, 10),
+	Position = UDim2.new(0, 34, 1, -15),
+	BackgroundColor3 = Color3.fromRGB(205, 215, 232),
 	Parent = levelPill,
 })
-corner(xpBar, 4)
+corner(xpBar, 5)
+stroke(xpBar, INK, 2, 0)
 local xpFill = new("Frame", {
 	Size = UDim2.fromScale(0, 1),
 	BackgroundColor3 = THEME.accent,
 	Parent = xpBar,
 })
-corner(xpFill, 4)
+corner(xpFill, 5)
+shade(xpFill)
 
 ---------------------------------------------------------------------------
 -- EVENT BANNER
@@ -235,12 +341,13 @@ local banner = new("Frame", {
 	Visible = false,
 	Parent = gui,
 })
-corner(banner, 12)
-local bannerStroke = stroke(banner, THEME.gold, 2.5, 0)
+corner(banner, 14)
+shade(banner)
+local bannerStroke = stroke(banner, THEME.gold, 3, 0)
 local bannerTitle = text({
 	Size = UDim2.new(1, -20, 0, 24),
 	Position = UDim2.new(0, 10, 0, 5),
-	Font = Enum.Font.GothamBlack,
+	Font = Enum.Font.FredokaOne,
 	TextColor3 = THEME.gold,
 	TextXAlignment = Enum.TextXAlignment.Center,
 	Parent = banner,
@@ -248,7 +355,7 @@ local bannerTitle = text({
 local bannerDesc = text({
 	Size = UDim2.new(1, -20, 0, 18),
 	Position = UDim2.new(0, 10, 0, 30),
-	Font = Enum.Font.Gotham,
+	Font = Enum.Font.GothamBold,
 	TextColor3 = THEME.text,
 	TextXAlignment = Enum.TextXAlignment.Center,
 	MaxTextSize = 15,
@@ -328,15 +435,17 @@ local function toast(message, color, duration)
 		LayoutOrder = toastCount,
 		Parent = toastHolder,
 	})
-	corner(frame, 10)
-	stroke(frame, color, 2, 0)
-	new("Frame", {
-		Size = UDim2.new(0, 6, 1, -12),
-		Position = UDim2.new(0, 6, 0, 6),
+	corner(frame, 14)
+	shade(frame)
+	stroke(frame, INK, 2.5, 0)
+	local dot = new("Frame", {
+		Size = UDim2.new(0, 10, 0, 10),
+		Position = UDim2.new(0, 8, 0.5, -5),
 		BackgroundColor3 = color,
-		BorderSizePixel = 0,
 		Parent = frame,
 	})
+	corner(dot, 5)
+	stroke(dot, INK, 2, 0)
 	local label = text({
 		Size = UDim2.new(1, -28, 1, -10),
 		Position = UDim2.new(0, 20, 0, 5),
@@ -376,7 +485,7 @@ local splash = text({
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	Position = UDim2.fromScale(0.5, 0.3),
 	Size = UDim2.new(0.8, 0, 0, 70),
-	Font = Enum.Font.GothamBlack,
+	Font = Enum.Font.FredokaOne,
 	TextXAlignment = Enum.TextXAlignment.Center,
 	TextStrokeTransparency = 0,
 	MaxTextSize = 54,
@@ -410,50 +519,66 @@ local panel = new("Frame", {
 	Parent = gui,
 })
 new("UISizeConstraint", { MaxSize = Vector2.new(720, 470), MinSize = Vector2.new(320, 260), Parent = panel })
-corner(panel, 16)
-stroke(panel, THEME.accent, 2.5, 0.1)
-gradient(panel, Color3.fromRGB(255, 255, 255), Color3.fromRGB(170, 190, 215))
+corner(panel, 20)
+stroke(panel, INK, 3.5, 0)
+gradient(panel, Color3.fromRGB(255, 255, 255), Color3.fromRGB(208, 224, 246))
 
 local header = new("Frame", {
-	Size = UDim2.new(1, 0, 0, 52),
-	BackgroundColor3 = THEME.bg,
+	Size = UDim2.new(1, 0, 0, 54),
+	BackgroundColor3 = THEME.ribbon,
 	Parent = panel,
 })
-corner(header, 16)
+corner(header, 20)
+shade(header)
+stroke(header, INK, 3, 0)
+-- squares off the ribbon's bottom corners so it sits flush on the panel
+new("Frame", {
+	Position = UDim2.new(0, 0, 1, -20),
+	Size = UDim2.new(1, 0, 0, 20),
+	BackgroundColor3 = THEME.ribbon,
+	BorderSizePixel = 0,
+	Parent = header,
+})
 local panelTitle = text({
-	Size = UDim2.new(0.6, 0, 0, 30),
-	Position = UDim2.new(0, 18, 0, 11),
-	Font = Enum.Font.GothamBlack,
-	TextColor3 = THEME.accent,
-	MaxTextSize = 26,
+	Size = UDim2.new(0.6, 0, 0, 36),
+	Position = UDim2.new(0, 18, 0, 8),
+	Font = Enum.Font.FredokaOne,
+	TextColor3 = THEME.text,
+	MaxTextSize = 30,
+	ZIndex = 2,
 	Parent = header,
 })
 local panelSubtitle = text({
 	AnchorPoint = Vector2.new(1, 0),
-	Size = UDim2.new(0.4, -60, 0, 20),
-	Position = UDim2.new(1, -58, 0, 16),
-	Font = Enum.Font.Gotham,
+	Size = UDim2.new(0.42, -40, 0, 20),
+	Position = UDim2.new(1, -40, 0, 17),
+	Font = Enum.Font.FredokaOne,
 	TextColor3 = THEME.muted,
 	TextXAlignment = Enum.TextXAlignment.Right,
 	MaxTextSize = 15,
+	ZIndex = 2,
 	Parent = header,
 })
+-- big red X sitting on the panel's corner
 local closeButton = button({
-	AnchorPoint = Vector2.new(1, 0),
-	Position = UDim2.new(1, -10, 0, 9),
-	Size = UDim2.new(0, 34, 0, 34),
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.new(1, -4, 0, 4),
+	Size = UDim2.new(0, 48, 0, 48),
 	Text = "X",
 	BackgroundColor3 = THEME.danger,
-	Parent = header,
+	MaxTextSize = 28,
+	ZIndex = 5,
+	Parent = panel,
 })
+corner(closeButton, 24)
 
 local content = new("ScrollingFrame", {
 	Position = UDim2.new(0, 12, 0, 62),
 	Size = UDim2.new(1, -24, 1, -72),
 	BackgroundTransparency = 1,
 	BorderSizePixel = 0,
-	ScrollBarThickness = 6,
-	ScrollBarImageColor3 = THEME.accent,
+	ScrollBarThickness = 8,
+	ScrollBarImageColor3 = INK,
 	AutomaticCanvasSize = Enum.AutomaticSize.Y,
 	CanvasSize = UDim2.new(),
 	Parent = panel,
@@ -481,9 +606,35 @@ local function card(height, order, accent)
 		LayoutOrder = order,
 		Parent = content,
 	})
-	corner(frame, 10)
-	stroke(frame, accent or THEME.accent, 1.5, 0.55)
+	corner(frame, 14)
+	shade(frame)
+	stroke(frame, INK, 2.5, 0)
+	if accent then
+		-- colored stripe on the left edge (rarity / theme color)
+		local stripe = new("Frame", {
+			Position = UDim2.new(0, 0, 0, 0),
+			Size = UDim2.new(0, 7, 1, 0),
+			BackgroundColor3 = accent,
+			BorderSizePixel = 0,
+			Parent = frame,
+		})
+		corner(stripe, 14)
+	end
 	return frame
+end
+
+-- Every blue tile made directly (pets, eggs, logbook...) gets the same shading + border
+local function polish(container)
+	for _, obj in ipairs(container:GetDescendants()) do
+		if obj:IsA("Frame") and (obj.BackgroundColor3 == THEME.card or obj.BackgroundColor3 == THEME.cardHover)
+			and not obj:FindFirstChildOfClass("UIGradient") then
+			shade(obj)
+			local border = obj:FindFirstChildOfClass("UIStroke")
+			if not border then
+				stroke(obj, INK, 2.5, 0)
+			end
+		end
+	end
 end
 
 local function riskColor(chance)
@@ -533,7 +684,7 @@ local function renderFleet()
 		text({
 			Size = UDim2.fromScale(1, 1),
 			Text = "T" .. tier,
-			Font = Enum.Font.GothamBlack,
+			Font = Enum.Font.FredokaOne,
 			TextXAlignment = Enum.TextXAlignment.Center,
 			TextStrokeTransparency = 0.4,
 			Parent = badge,
@@ -543,7 +694,7 @@ local function renderFleet()
 			Size = UDim2.new(0.45, -90, 0, 24),
 			Position = UDim2.new(0, 86, 0, 12),
 			Text = def.name,
-			Font = Enum.Font.GothamBlack,
+			Font = Enum.Font.FredokaOne,
 			MaxTextSize = 22,
 			Parent = row,
 		})
@@ -552,7 +703,7 @@ local function renderFleet()
 			Size = UDim2.new(0.45, -90, 0, 18),
 			Position = UDim2.new(0, 86, 0, 40),
 			Text = statusText,
-			Font = Enum.Font.GothamMedium,
+			Font = Enum.Font.GothamBold,
 			TextColor3 = statusColor,
 			MaxTextSize = 15,
 			Parent = row,
@@ -562,7 +713,7 @@ local function renderFleet()
 			Size = UDim2.new(0.45, -90, 0, 16),
 			Position = UDim2.new(0, 86, 0, 62),
 			Text = string.format("Luck x%.2f  |  Hull +%d%%  |  Speed x%.2f", def.luck, math.floor(def.hull * 100 + 0.5), 1 / def.speed),
-			Font = Enum.Font.Gotham,
+			Font = Enum.Font.GothamBold,
 			TextColor3 = THEME.muted,
 			MaxTextSize = 13,
 			Parent = row,
@@ -609,7 +760,7 @@ local function renderFleet()
 			Text = string.format('Next dive: %s (%s)  <font color="#%s">%d%% breach</font>',
 				zone.name, zone.depthText, riskColor(risk):ToHex(), math.floor(risk * 100 + 0.5)),
 			RichText = true,
-			Font = Enum.Font.GothamMedium,
+			Font = Enum.Font.GothamBold,
 			TextXAlignment = Enum.TextXAlignment.Right,
 			MaxTextSize = 14,
 			Parent = row,
@@ -619,7 +770,7 @@ local function renderFleet()
 			Position = UDim2.new(1, -12, 0, 70),
 			Size = UDim2.new(0.5, 0, 0, 14),
 			Text = string.format("+%d coins per haul", math.floor(zone.coins * (state.multiplier or 1))),
-			Font = Enum.Font.Gotham,
+			Font = Enum.Font.GothamBold,
 			TextColor3 = THEME.gold,
 			TextXAlignment = Enum.TextXAlignment.Right,
 			MaxTextSize = 13,
@@ -633,7 +784,7 @@ local function renderFleet()
 			Size = UDim2.new(1, -28, 0, 20),
 			Position = UDim2.new(0, 14, 0.5, -10),
 			Text = "Empty berth - buy another sub in the Shop",
-			Font = Enum.Font.GothamMedium,
+			Font = Enum.Font.GothamBold,
 			TextColor3 = THEME.muted,
 			MaxTextSize = 16,
 			Parent = row,
@@ -669,7 +820,7 @@ local function renderShop()
 		text({
 			Size = UDim2.fromScale(1, 1),
 			Text = "T" .. i,
-			Font = Enum.Font.GothamBlack,
+			Font = Enum.Font.FredokaOne,
 			TextXAlignment = Enum.TextXAlignment.Center,
 			TextStrokeTransparency = 0.4,
 			Parent = badge,
@@ -678,7 +829,7 @@ local function renderShop()
 			Size = UDim2.new(1, -250, 0, 24),
 			Position = UDim2.new(0, 82, 0, 12),
 			Text = def.name,
-			Font = Enum.Font.GothamBlack,
+			Font = Enum.Font.FredokaOne,
 			Parent = row,
 		})
 		local zone = Config.Zones[def.maxDepth]
@@ -686,7 +837,7 @@ local function renderShop()
 			Size = UDim2.new(1, -250, 0, 16),
 			Position = UDim2.new(0, 82, 0, 40),
 			Text = "Reaches: " .. zone.name .. " (" .. zone.depthText .. ")",
-			Font = Enum.Font.GothamMedium,
+			Font = Enum.Font.GothamBold,
 			TextColor3 = THEME.accent,
 			MaxTextSize = 15,
 			Parent = row,
@@ -695,7 +846,7 @@ local function renderShop()
 			Size = UDim2.new(1, -250, 0, 14),
 			Position = UDim2.new(0, 82, 0, 60),
 			Text = string.format("Luck x%.2f  |  Hull +%d%%  |  Speed x%.2f", def.luck, math.floor(def.hull * 100 + 0.5), 1 / def.speed),
-			Font = Enum.Font.Gotham,
+			Font = Enum.Font.GothamBold,
 			TextColor3 = THEME.muted,
 			MaxTextSize = 13,
 			Parent = row,
@@ -745,7 +896,7 @@ local function renderLogbook()
 		Size = UDim2.new(0.4, 0, 0, 20),
 		Position = UDim2.new(0, 14, 0.5, -10),
 		Text = string.format("%d / %d spare fragments", spares, state.spareCapacity),
-		Font = Enum.Font.GothamMedium,
+		Font = Enum.Font.GothamBold,
 		MaxTextSize = 15,
 		Parent = toolbar,
 	})
@@ -813,7 +964,7 @@ local function renderLogbook()
 			Size = UDim2.new(1, -20, 0, 22),
 			Position = UDim2.new(0, 10, 0, 8),
 			Text = hidden and "??? (Secret)" or ship.name,
-			Font = Enum.Font.GothamBlack,
+			Font = Enum.Font.FredokaOne,
 			TextColor3 = rarity.color,
 			Parent = box,
 		})
@@ -821,7 +972,7 @@ local function renderLogbook()
 			Size = UDim2.new(1, -20, 0, 14),
 			Position = UDim2.new(0, 10, 0, 32),
 			Text = string.format("%s  |  %d/%d fragments  |  +%d%% coins", rarity.name, owned, #ship.parts, math.floor(ship.bonus * 100 + 0.5)),
-			Font = Enum.Font.GothamMedium,
+			Font = Enum.Font.GothamBold,
 			TextColor3 = THEME.muted,
 			MaxTextSize = 13,
 			Parent = box,
@@ -859,7 +1010,7 @@ local function renderLogbook()
 			text({
 				Text = has and ("+ " .. partName .. (count > 1 and ("  x" .. count) or ""))
 					or ("- " .. (hidden and "???" or partName)),
-				Font = has and Enum.Font.GothamBold or Enum.Font.Gotham,
+				Font = has and Enum.Font.FredokaOne or Enum.Font.GothamBold,
 				TextColor3 = has and THEME.text or Color3.fromRGB(95, 115, 135),
 				LayoutOrder = p,
 				MaxTextSize = 13,
@@ -871,7 +1022,7 @@ local function renderLogbook()
 			Size = UDim2.new(1, -20, 0, 20),
 			Position = UDim2.new(0, 10, 1, -28),
 			Text = isRestored and "RESTORED - floating at your bay!" or "Find every fragment to restore it",
-			Font = isRestored and Enum.Font.GothamBlack or Enum.Font.Gotham,
+			Font = isRestored and Enum.Font.FredokaOne or Enum.Font.GothamBold,
 			TextColor3 = isRestored and THEME.good or THEME.muted,
 			TextXAlignment = Enum.TextXAlignment.Center,
 			MaxTextSize = 14,
@@ -1108,7 +1259,7 @@ local function playHatch(eggId, petId)
 		Position = UDim2.new(0, 0, 0, 290),
 		Size = UDim2.new(1, 0, 0, 34),
 		Text = def.name,
-		Font = Enum.Font.GothamBlack,
+		Font = Enum.Font.FredokaOne,
 		TextXAlignment = Enum.TextXAlignment.Center,
 		TextStrokeTransparency = 0.3,
 		MaxTextSize = 32,
@@ -1119,7 +1270,7 @@ local function playHatch(eggId, petId)
 		Size = UDim2.new(1, 0, 0, 22),
 		Text = rarity.name:upper(),
 		TextColor3 = rarity.color,
-		Font = Enum.Font.GothamBlack,
+		Font = Enum.Font.FredokaOne,
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Parent = hatchStage,
 	})
@@ -1128,7 +1279,7 @@ local function playHatch(eggId, petId)
 		Size = UDim2.new(1, 0, 0, 18),
 		Text = Config.DescribeBonus(def.bonus),
 		TextColor3 = THEME.gold,
-		Font = Enum.Font.GothamMedium,
+		Font = Enum.Font.GothamBold,
 		TextXAlignment = Enum.TextXAlignment.Center,
 		MaxTextSize = 16,
 		Parent = hatchStage,
@@ -1160,7 +1311,7 @@ local function sectionTitle(label, order)
 	return text({
 		Size = UDim2.new(1, 0, 0, 24),
 		Text = label,
-		Font = Enum.Font.GothamBlack,
+		Font = Enum.Font.FredokaOne,
 		TextColor3 = THEME.accent,
 		LayoutOrder = order,
 		MaxTextSize = 18,
@@ -1261,7 +1412,7 @@ local function renderCharms()
 		Position = UDim2.new(0, 14, 0, 8),
 		Size = UDim2.new(1, -28, 0, 20),
 		Text = "Charm bonus: " .. (bonusText ~= "" and bonusText or "none - equip a charm!"),
-		Font = Enum.Font.GothamBlack,
+		Font = Enum.Font.FredokaOne,
 		TextColor3 = THEME.accent,
 		MaxTextSize = 16,
 		Parent = summary,
@@ -1271,7 +1422,7 @@ local function renderCharms()
 		Size = UDim2.new(1, -28, 0, 20),
 		Text = string.format("Found in %ss floating in the sea (%d%%), hauls (%d%%) and creatures (%d%%). Only this season!",
 			Config.Drifters.name, pct(Config.Drifters.charmChance), pct(Config.CharmChanceHaul), pct(Config.CharmChanceKill)),
-		Font = Enum.Font.Gotham,
+		Font = Enum.Font.GothamBold,
 		TextColor3 = THEME.muted,
 		TextWrapped = true,
 		MaxTextSize = 13,
@@ -1296,7 +1447,7 @@ local function renderCharms()
 					Position = UDim2.new(1, -8, 0, 6),
 					Size = UDim2.new(0, 40, 0, 18),
 					Text = "x" .. owned,
-					Font = Enum.Font.GothamBlack,
+					Font = Enum.Font.FredokaOne,
 					TextXAlignment = Enum.TextXAlignment.Right,
 					MaxTextSize = 15,
 					Parent = box,
@@ -1306,7 +1457,7 @@ local function renderCharms()
 				Position = UDim2.new(0, 6, 0, 76),
 				Size = UDim2.new(1, -12, 0, 18),
 				Text = owned > 0 and charm.name or "???",
-				Font = Enum.Font.GothamBlack,
+				Font = Enum.Font.FredokaOne,
 				TextColor3 = owned > 0 and rarity.color or THEME.muted,
 				TextXAlignment = Enum.TextXAlignment.Center,
 				MaxTextSize = 15,
@@ -1316,7 +1467,7 @@ local function renderCharms()
 				Position = UDim2.new(0, 6, 0, 96),
 				Size = UDim2.new(1, -12, 0, 14),
 				Text = rarity.name:upper() .. (thisSeason and "" or "  |  OLD SEASON"),
-				Font = Enum.Font.GothamBold,
+				Font = Enum.Font.FredokaOne,
 				TextColor3 = rarity.color,
 				TextXAlignment = Enum.TextXAlignment.Center,
 				MaxTextSize = 11,
@@ -1326,7 +1477,7 @@ local function renderCharms()
 				Position = UDim2.new(0, 6, 0, 112),
 				Size = UDim2.new(1, -12, 0, 26),
 				Text = Config.DescribeBonus(charm.bonus),
-				Font = Enum.Font.Gotham,
+				Font = Enum.Font.GothamBold,
 				TextColor3 = owned > 0 and THEME.gold or THEME.muted,
 				TextXAlignment = Enum.TextXAlignment.Center,
 				TextWrapped = true,
@@ -1377,7 +1528,7 @@ local function renderCharms()
 					Position = UDim2.new(0, 6, 0, 150),
 					Size = UDim2.new(1, -12, 0, 40),
 					Text = "Not found yet. Keep searching the sea!",
-					Font = Enum.Font.Gotham,
+					Font = Enum.Font.GothamBold,
 					TextColor3 = THEME.muted,
 					TextXAlignment = Enum.TextXAlignment.Center,
 					TextWrapped = true,
@@ -1411,7 +1562,7 @@ local function renderPets()
 		Size = UDim2.new(1, -180, 0, 20),
 		Position = UDim2.new(0, 14, 0.5, -10),
 		Text = "Pet bonus: " .. (bonusText ~= "" and bonusText or "none yet - equip some pets!"),
-		Font = Enum.Font.GothamMedium,
+		Font = Enum.Font.GothamBold,
 		TextColor3 = THEME.gold,
 		MaxTextSize = 15,
 		Parent = summary,
@@ -1484,7 +1635,7 @@ local function renderPets()
 		text({
 			Size = UDim2.new(1, 0, 0, 20),
 			Text = "No eggs yet. Every haul has a " .. math.floor(Config.EggChance * 100 + 0.5) .. "% chance to bring one up!",
-			Font = Enum.Font.Gotham,
+			Font = Enum.Font.GothamBold,
 			TextColor3 = THEME.muted,
 			LayoutOrder = 3,
 			MaxTextSize = 15,
@@ -1498,7 +1649,7 @@ local function renderPets()
 		text({
 			Size = UDim2.new(1, 0, 0, 20),
 			Text = "No pets yet. Hatch an egg to get one!",
-			Font = Enum.Font.Gotham,
+			Font = Enum.Font.GothamBold,
 			TextColor3 = THEME.muted,
 			LayoutOrder = 5,
 			MaxTextSize = 15,
@@ -1580,7 +1731,7 @@ local function renderPets()
 					Parent = box,
 				})
 				corner(tag, 9)
-				text({ Size = UDim2.fromScale(1, 1), Text = mutation.name:upper(), Font = Enum.Font.GothamBlack, TextColor3 = THEME.bg,
+				text({ Size = UDim2.fromScale(1, 1), Text = mutation.name:upper(), Font = Enum.Font.FredokaOne, TextColor3 = THEME.bg,
 					TextXAlignment = Enum.TextXAlignment.Center, MaxTextSize = 10, ZIndex = 2, Parent = tag })
 			end
 			petViewport(box, mutatedDef(def, pet.mutation), UDim2.new(1, 0, 0, 96), UDim2.new(0, 0, 0, 0), false)
@@ -1588,7 +1739,7 @@ local function renderPets()
 				Position = UDim2.new(0, 6, 0, 96),
 				Size = UDim2.new(1, -12, 0, 18),
 				Text = petDisplayName(def, pet.mutation),
-				Font = Enum.Font.GothamBlack,
+				Font = Enum.Font.FredokaOne,
 				TextColor3 = rarity.color,
 				TextXAlignment = Enum.TextXAlignment.Center,
 				MaxTextSize = 15,
@@ -1598,7 +1749,7 @@ local function renderPets()
 				Position = UDim2.new(0, 6, 0, 116),
 				Size = UDim2.new(1, -12, 0, 26),
 				Text = Config.DescribeBonus(Config.MutatedBonus(def.id, pet.mutation)),
-				Font = Enum.Font.Gotham,
+				Font = Enum.Font.GothamBold,
 				TextColor3 = THEME.gold,
 				TextXAlignment = Enum.TextXAlignment.Center,
 				TextWrapped = true,
@@ -1609,7 +1760,7 @@ local function renderPets()
 				Position = UDim2.new(0, 6, 0, 143),
 				Size = UDim2.new(1, -12, 0, 16),
 				Text = mutation and (Config.WeatherTiers[mutation.tier].name .. ": " .. mutation.ability.name) or "No ability (mutate in weather)",
-				Font = mutation and Enum.Font.GothamBlack or Enum.Font.Gotham,
+				Font = mutation and Enum.Font.FredokaOne or Enum.Font.GothamBold,
 				TextColor3 = mutation and mutation.color or Color3.fromRGB(95, 115, 135),
 				TextXAlignment = Enum.TextXAlignment.Center,
 				MaxTextSize = 11,
@@ -1715,7 +1866,7 @@ local function offerBox(parent, title, items, ready, position, mine)
 		Position = UDim2.new(0, 10, 0, 6),
 		Size = UDim2.new(1, -20, 0, 20),
 		Text = title .. (ready and "  - READY" or ""),
-		Font = Enum.Font.GothamBlack,
+		Font = Enum.Font.FredokaOne,
 		TextColor3 = ready and THEME.good or THEME.text,
 		MaxTextSize = 15,
 		Parent = box,
@@ -1735,7 +1886,7 @@ local function offerBox(parent, title, items, ready, position, mine)
 		text({
 			Size = UDim2.new(1, 0, 0, 18),
 			Text = mine and "Tap your items below to add them" or "Nothing yet...",
-			Font = Enum.Font.Gotham,
+			Font = Enum.Font.GothamBold,
 			TextColor3 = THEME.muted,
 			MaxTextSize = 13,
 			Parent = list,
@@ -1759,7 +1910,7 @@ local function renderTrade()
 			Position = UDim2.new(0, 16, 0, 18),
 			Size = UDim2.new(1, -32, 0, 30),
 			Text = "Trading unlocks at Level " .. Config.TradeUnlockLevel,
-			Font = Enum.Font.GothamBlack,
+			Font = Enum.Font.FredokaOne,
 			TextXAlignment = Enum.TextXAlignment.Center,
 			MaxTextSize = 24,
 			Parent = lock,
@@ -1768,7 +1919,7 @@ local function renderTrade()
 			Position = UDim2.new(0, 16, 0, 58),
 			Size = UDim2.new(1, -32, 0, 20),
 			Text = "You're Level " .. state.level .. ". Every haul gives XP, and deeper zones give more.",
-			Font = Enum.Font.Gotham,
+			Font = Enum.Font.GothamBold,
 			TextColor3 = THEME.muted,
 			TextXAlignment = Enum.TextXAlignment.Center,
 			MaxTextSize = 15,
@@ -1790,14 +1941,14 @@ local function renderTrade()
 					Position = UDim2.new(0, 14, 0, 8),
 					Size = UDim2.new(0.6, 0, 0, 22),
 					Text = p.DisplayName,
-					Font = Enum.Font.GothamBlack,
+					Font = Enum.Font.FredokaOne,
 					Parent = row,
 				})
 				text({
 					Position = UDim2.new(0, 14, 0, 32),
 					Size = UDim2.new(0.6, 0, 0, 16),
 					Text = "Level " .. level .. (unlocked and "" or "  (can't trade yet)"),
-					Font = Enum.Font.Gotham,
+					Font = Enum.Font.GothamBold,
 					TextColor3 = unlocked and THEME.accent or THEME.muted,
 					MaxTextSize = 14,
 					Parent = row,
@@ -1823,7 +1974,7 @@ local function renderTrade()
 			text({
 				Size = UDim2.new(1, 0, 0, 20),
 				Text = "No one else is in this server right now.",
-				Font = Enum.Font.Gotham,
+				Font = Enum.Font.GothamBold,
 				TextColor3 = THEME.muted,
 				MaxTextSize = 15,
 				Parent = content,
@@ -1861,7 +2012,7 @@ local function renderTrade()
 		Position = UDim2.new(0, 12, 0.5, -9),
 		Size = UDim2.new(1, -370, 0, 18),
 		Text = statusText,
-		Font = Enum.Font.GothamMedium,
+		Font = Enum.Font.GothamBold,
 		TextWrapped = true,
 		MaxTextSize = 13,
 		Parent = controls,
@@ -1942,7 +2093,7 @@ local function renderTrade()
 		text({
 			Size = UDim2.new(1, 0, 0, 34),
 			Text = "Nothing to trade. Spare fragments, unequipped pets and eggs show up here. (Tip: turn off Auto-sell in the Logbook to keep spares.)",
-			Font = Enum.Font.Gotham,
+			Font = Enum.Font.GothamBold,
 			TextColor3 = THEME.muted,
 			TextWrapped = true,
 			LayoutOrder = 4,
@@ -1977,7 +2128,7 @@ local requestLabel = text({
 	Position = UDim2.new(0, 12, 0, 10),
 	Size = UDim2.new(1, -24, 0, 24),
 	TextXAlignment = Enum.TextXAlignment.Center,
-	Font = Enum.Font.GothamBlack,
+	Font = Enum.Font.FredokaOne,
 	MaxTextSize = 18,
 	Parent = requestPopup,
 })
@@ -2111,7 +2262,7 @@ local function renderWeapons()
 				Size = UDim2.new(1, -250, 0, 22),
 				Position = UDim2.new(0, 74, 0, 12),
 				Text = weapon.name .. (weapon.seasonOnly and "  (Season)" or ""),
-				Font = Enum.Font.GothamBlack,
+				Font = Enum.Font.FredokaOne,
 				Parent = row,
 			})
 			text({
@@ -2119,7 +2270,7 @@ local function renderWeapons()
 				Position = UDim2.new(0, 74, 0, 40),
 				Text = string.format("%s damage  |  %d stud reach  |  %.2fs per hit",
 					Config.FormatNumber(weapon.damage), weapon.range, weapon.cooldown),
-				Font = Enum.Font.GothamMedium,
+				Font = Enum.Font.GothamBold,
 				TextColor3 = THEME.muted,
 				MaxTextSize = 14,
 				Parent = row,
@@ -2157,7 +2308,7 @@ local function renderWeapons()
 		Size = UDim2.new(1, -24, 0, 30),
 		Position = UDim2.new(0, 12, 0.5, -15),
 		Text = "Take a portal on the island to a hunting ground, hold your weapon and click (or tap) to attack.",
-		Font = Enum.Font.Gotham,
+		Font = Enum.Font.GothamBold,
 		TextColor3 = THEME.muted,
 		TextWrapped = true,
 		MaxTextSize = 13,
@@ -2191,7 +2342,7 @@ local function questRows(list, scope, startOrder)
 				Position = UDim2.new(0, 14, 0, 10),
 				Size = UDim2.new(1, -180, 0, 20),
 				Text = string.format(def.text, def.target),
-				Font = Enum.Font.GothamBlack,
+				Font = Enum.Font.FredokaOne,
 				TextColor3 = q.claimed and THEME.muted or THEME.text,
 				MaxTextSize = 17,
 				Parent = row,
@@ -2206,7 +2357,7 @@ local function questRows(list, scope, startOrder)
 					"#" .. THEME.accent:ToHex(), Config.FormatNumber(math.floor(Config.XPToNext(state.level) * (def.reward.levels or 0))),
 					"#" .. Color3.fromRGB(255, 90, 220):ToHex(), def.reward.seasonXp),
 				RichText = true,
-				Font = Enum.Font.GothamMedium,
+				Font = Enum.Font.GothamBold,
 				TextColor3 = THEME.muted,
 				MaxTextSize = 13,
 				Parent = row,
@@ -2256,9 +2407,9 @@ end
 -- "R$ 800" or "R$ <s>1000</s> 800" when a sale is on (RichText)
 local function priceText(item)
 	if saleOn(item) then
-		return string.format('R$ <s>%d</s>  %d', item.originalPrice, priceOf(item))
+		return string.format('%s <s>%d</s>  %d', ROBUX, item.originalPrice, priceOf(item))
 	end
-	return "R$ " .. priceOf(item)
+	return ROBUX .. " " .. priceOf(item)
 end
 
 ---------------------------------------------------------------------------
@@ -2295,7 +2446,7 @@ local function renderSeason()
 		Position = UDim2.new(0, 14, 0, 10),
 		Size = UDim2.new(0.5, 0, 0, 26),
 		Text = tierText,
-		Font = Enum.Font.GothamBlack,
+		Font = Enum.Font.FredokaOne,
 		MaxTextSize = 24,
 		Parent = head,
 	})
@@ -2308,7 +2459,7 @@ local function renderSeason()
 		Position = UDim2.new(1, -14, 0, 12),
 		Size = UDim2.new(0.45, 0, 0, 20),
 		Text = "Prestige " .. season.prestige .. "/" .. cfg.maxPrestige .. "  " .. stars,
-		Font = Enum.Font.GothamBlack,
+		Font = Enum.Font.FredokaOne,
 		TextColor3 = TRACK_COLORS.mystic,
 		TextXAlignment = Enum.TextXAlignment.Right,
 		MaxTextSize = 17,
@@ -2323,7 +2474,7 @@ local function renderSeason()
 		Text = string.format("%d / %d XP to the next tier%s   |   Rewards x%.2f at this prestige",
 			into, cfg.xpPerTier, bonus > 0 and (" (+" .. pct(bonus) .. "% season XP)") or "",
 			cfg.prestigeMultiplier[season.prestige + 1]),
-		Font = Enum.Font.GothamMedium,
+		Font = Enum.Font.GothamBold,
 		TextColor3 = THEME.muted,
 		MaxTextSize = 13,
 		Parent = head,
@@ -2348,9 +2499,9 @@ local function renderSeason()
 	local premium = Config.GetProductByKey("SeasonPremium")
 	local mystic = Config.GetProductByKey("SeasonMystic")
 	passButton(0, "SeasonPremium", season.premium or season.mystic,
-		(season.premium or season.mystic) and "PREMIUM" or ("PREMIUM  R$" .. priceOf(premium)), TRACK_COLORS.premium)
+		(season.premium or season.mystic) and "PREMIUM" or ("PREMIUM  " .. ROBUX .. priceOf(premium)), TRACK_COLORS.premium)
 	passButton(0.33, "SeasonMystic", season.mystic, season.mystic and "MYSTIC"
-		or ("MYSTIC  R$" .. priceOf(mystic) .. (saleOn(mystic) and ("  " .. mystic.saleLabel) or "")), TRACK_COLORS.mystic)
+		or ("MYSTIC  " .. ROBUX .. priceOf(mystic) .. (saleOn(mystic) and ("  " .. mystic.saleLabel) or "")), TRACK_COLORS.mystic)
 	local canPrestige = season.prestige < cfg.maxPrestige and tier >= cfg.tiers + cfg.prestigeExtraTiers
 	local prestigeButton = button({
 		Position = UDim2.new(0.66, 14, 0, 82),
@@ -2375,7 +2526,7 @@ local function renderSeason()
 			Position = UDim2.new(0.1 + (i - 1) * 0.3, 0, 0, 0),
 			Size = UDim2.new(0.3, -6, 1, 0),
 			Text = track,
-			Font = Enum.Font.GothamBlack,
+			Font = Enum.Font.FredokaOne,
 			TextColor3 = TRACK_COLORS[track:lower()],
 			TextXAlignment = Enum.TextXAlignment.Center,
 			MaxTextSize = 15,
@@ -2396,7 +2547,7 @@ local function renderSeason()
 		text({
 			Size = UDim2.new(0.1, -4, 1, 0),
 			Text = tostring(t),
-			Font = Enum.Font.GothamBlack,
+			Font = Enum.Font.FredokaOne,
 			TextColor3 = reached and THEME.accent or THEME.muted,
 			TextXAlignment = Enum.TextXAlignment.Center,
 			MaxTextSize = 20,
@@ -2421,7 +2572,7 @@ local function renderSeason()
 					Position = UDim2.new(0, 6, 0, 2),
 					Size = UDim2.new(1, -12, 1, -4),
 					Text = (claimed and "GOT: " or (locked and "LOCKED: " or "")) .. label,
-					Font = Enum.Font.GothamBold,
+					Font = Enum.Font.FredokaOne,
 					TextColor3 = locked and Color3.fromRGB(110, 120, 135) or color,
 					TextXAlignment = Enum.TextXAlignment.Center,
 					TextWrapped = true,
@@ -2436,7 +2587,7 @@ local function renderSeason()
 		Size = UDim2.new(1, -24, 0, 28),
 		Position = UDim2.new(0, 12, 0.5, -14),
 		Text = "Earn season XP from hauls, creatures, quests, events and " .. Config.Drifters.name .. "s floating in the sea (they can hold season Charms!). Prestige to restart with bigger rewards and upgraded season pets.",
-		Font = Enum.Font.Gotham,
+		Font = Enum.Font.GothamBold,
 		TextColor3 = THEME.muted,
 		TextWrapped = true,
 		MaxTextSize = 13,
@@ -2457,8 +2608,9 @@ local dailyPopup = new("Frame", {
 	Parent = gui,
 })
 new("UISizeConstraint", { MaxSize = Vector2.new(600, 330), Parent = dailyPopup })
-corner(dailyPopup, 16)
-stroke(dailyPopup, THEME.gold, 3, 0)
+corner(dailyPopup, 20)
+gradient(dailyPopup, Color3.fromRGB(255, 255, 255), Color3.fromRGB(208, 224, 246))
+stroke(dailyPopup, INK, 3.5, 0)
 local dailyContent = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Parent = dailyPopup })
 
 -- What a day's rewards will be for a given streak (same math as the server)
@@ -2481,7 +2633,13 @@ local function dailyPreview(streak)
 	return list, dayIndex, mult
 end
 
+local renderDailyTiles
 local function renderDaily()
+	renderDailyTiles()
+	polish(dailyContent)
+end
+
+renderDailyTiles = function()
 	for _, child in ipairs(dailyContent:GetChildren()) do
 		child:Destroy()
 	end
@@ -2491,7 +2649,7 @@ local function renderDaily()
 		Position = UDim2.new(0, 18, 0, 12),
 		Size = UDim2.new(0.6, 0, 0, 30),
 		Text = "DAILY REWARDS",
-		Font = Enum.Font.GothamBlack,
+		Font = Enum.Font.FredokaOne,
 		TextColor3 = THEME.gold,
 		MaxTextSize = 26,
 		Parent = dailyContent,
@@ -2501,7 +2659,7 @@ local function renderDaily()
 		Size = UDim2.new(1, -36, 0, 18),
 		Text = string.format("Streak: %d day%s   |   Best: %d   |   Week bonus x%.2f   |   Miss a day and it resets!",
 			login.streak, login.streak == 1 and "" or "s", math.max(login.best, login.streak), mult),
-		Font = Enum.Font.GothamMedium,
+		Font = Enum.Font.GothamBold,
 		TextColor3 = THEME.muted,
 		MaxTextSize = 14,
 		Parent = dailyContent,
@@ -2528,7 +2686,8 @@ local function renderDaily()
 		local rewards = dailyPreview(cycleStart + d - 1)
 		local tile = new("Frame", {
 			Size = UDim2.new(1 / #Config.DailyRewards, -6, 1, 0),
-			BackgroundColor3 = done and Color3.fromRGB(30, 80, 50) or (isToday and THEME.cardHover or THEME.card),
+			BackgroundColor3 = done and Color3.fromRGB(70, 190, 90) or (d == #Config.DailyRewards and Color3.fromRGB(180, 100, 240)
+				or (isToday and THEME.cardHover or THEME.card)),
 			LayoutOrder = d,
 			Parent = row,
 		})
@@ -2539,7 +2698,7 @@ local function renderDaily()
 			Position = UDim2.new(0, 4, 0, 6),
 			Size = UDim2.new(1, -8, 0, 18),
 			Text = done and "DONE" or ("DAY " .. d),
-			Font = Enum.Font.GothamBlack,
+			Font = Enum.Font.FredokaOne,
 			TextColor3 = done and THEME.good or (isToday and THEME.gold or THEME.text),
 			TextXAlignment = Enum.TextXAlignment.Center,
 			MaxTextSize = 15,
@@ -2553,7 +2712,7 @@ local function renderDaily()
 			Position = UDim2.new(0, 4, 0, 30),
 			Size = UDim2.new(1, -8, 1, -36),
 			Text = table.concat(lines, "\n"),
-			Font = Enum.Font.GothamBold,
+			Font = Enum.Font.FredokaOne,
 			TextColor3 = THEME.text,
 			TextWrapped = true,
 			TextXAlignment = Enum.TextXAlignment.Center,
@@ -2648,7 +2807,7 @@ local function robuxButton(parent, position, size, key, label, color)
 	local b = button({
 		Position = position,
 		Size = size,
-		Text = label .. "  R$" .. priceOf(product),
+		Text = label .. "  " .. ROBUX .. priceOf(product),
 		BackgroundColor3 = color,
 		MaxTextSize = 14,
 		Parent = parent,
@@ -2671,7 +2830,7 @@ local function renderRebirth()
 		Position = UDim2.new(0, 14, 0, 8),
 		Size = UDim2.new(1, -28, 0, 20),
 		Text = r > 0 and ("YOUR BONUSES FROM " .. r .. " REBIRTH" .. (r > 1 and "S" or "")) or "NO REBIRTHS YET",
-		Font = Enum.Font.GothamBlack,
+		Font = Enum.Font.FredokaOne,
 		TextColor3 = THEME.gold,
 		MaxTextSize = 16,
 		Parent = current,
@@ -2680,7 +2839,7 @@ local function renderRebirth()
 		Position = UDim2.new(0, 14, 0, 34),
 		Size = UDim2.new(1, -28, 0, 18),
 		Text = r > 0 and bonusLine(Config.RebirthTotals(r)) or "Rebirth to get permanent bonuses that stack up every time.",
-		Font = Enum.Font.GothamMedium,
+		Font = Enum.Font.GothamBold,
 		MaxTextSize = 14,
 		Parent = current,
 	})
@@ -2691,7 +2850,7 @@ local function renderRebirth()
 			Size = UDim2.new(1, -28, 0, 24),
 			Position = UDim2.new(0, 14, 0.5, -12),
 			Text = "MAX REBIRTH REACHED. You're a legend of the deep!",
-			Font = Enum.Font.GothamBlack,
+			Font = Enum.Font.FredokaOne,
 			TextColor3 = THEME.good,
 			MaxTextSize = 18,
 			Parent = maxed,
@@ -2707,7 +2866,7 @@ local function renderRebirth()
 		Position = UDim2.new(0, 14, 0, 8),
 		Size = UDim2.new(1, -28, 0, 20),
 		Text = "REBIRTH " .. (r + 1) .. " NEEDS",
-		Font = Enum.Font.GothamBlack,
+		Font = Enum.Font.FredokaOne,
 		TextColor3 = THEME.accent,
 		MaxTextSize = 16,
 		Parent = req,
@@ -2737,7 +2896,7 @@ local function renderRebirth()
 		Position = UDim2.new(0, 14, 0, 8),
 		Size = UDim2.new(1, -28, 0, 34),
 		Text = "YOU GAIN: " .. bonusLine(nextBonus) .. "   +" .. nextBonus.pearls .. " Pearls",
-		Font = Enum.Font.GothamBold,
+		Font = Enum.Font.FredokaOne,
 		TextColor3 = THEME.good,
 		TextWrapped = true,
 		MaxTextSize = 14,
@@ -2747,7 +2906,7 @@ local function renderRebirth()
 		Position = UDim2.new(0, 14, 0, 46),
 		Size = UDim2.new(1, -28, 0, 18),
 		Text = "YOU LOSE: your level, coins, subs and shop weapons.",
-		Font = Enum.Font.GothamBold,
+		Font = Enum.Font.FredokaOne,
 		TextColor3 = THEME.danger,
 		MaxTextSize = 14,
 		Parent = info,
@@ -2756,7 +2915,7 @@ local function renderRebirth()
 		Position = UDim2.new(0, 14, 0, 68),
 		Size = UDim2.new(1, -28, 0, 40),
 		Text = "YOU KEEP: ships, fragments, pets, charms, eggs, pearls, season progress, season weapons, passes and boosts. Each rebirth gives more than the last, and the next one needs more.",
-		Font = Enum.Font.Gotham,
+		Font = Enum.Font.GothamBold,
 		TextWrapped = true,
 		MaxTextSize = 13,
 		Parent = info,
@@ -2785,7 +2944,7 @@ local function renderRebirth()
 		Position = UDim2.new(0, 14, 0, 8),
 		Size = UDim2.new(1, -28, 0, 20),
 		Text = "IN A HURRY?  Daily quests also give XP and coins toward rebirth.",
-		Font = Enum.Font.GothamBlack,
+		Font = Enum.Font.FredokaOne,
 		TextColor3 = THEME.gold,
 		MaxTextSize = 14,
 		Parent = fast,
@@ -2804,6 +2963,15 @@ local STORE_ACCENTS = {
 	season = Color3.fromRGB(255, 90, 220),
 	pass = Color3.fromRGB(255, 205, 80),
 }
+-- each store item has its own tile color
+local STORE_COLORS = {
+	DoubleCoins = Color3.fromRGB(80, 200, 95), LuckyDiver = Color3.fromRGB(120, 215, 70), AutoHaul = Color3.fromRGB(70, 160, 245),
+	PetSlots = Color3.fromRGB(245, 120, 190), VIP = Color3.fromRGB(250, 190, 50), BigStorage = Color3.fromRGB(40, 190, 190),
+	BigTank = Color3.fromRGB(150, 110, 245), DoubleDamage = Color3.fromRGB(240, 80, 80),
+	BoostCoins = Color3.fromRGB(250, 190, 50), BoostLuck = Color3.fromRGB(120, 215, 70), BoostXP = Color3.fromRGB(70, 190, 245),
+	RebirthRush = Color3.fromRGB(255, 140, 50), LevelPack = Color3.fromRGB(40, 190, 190), InstantRebirth = Color3.fromRGB(255, 110, 70),
+	SeasonPremium = Color3.fromRGB(250, 190, 50), SeasonMystic = Color3.fromRGB(200, 90, 240),
+}
 
 local function boostTimeLeft(boost)
 	if type(boost) == "table" then
@@ -2817,45 +2985,71 @@ local function boostTimeLeft(boost)
 end
 
 local function storeCard(parent, order, item, owned, accent, extra, badge)
-	local box = new("Frame", { BackgroundColor3 = THEME.card, LayoutOrder = order, Parent = parent })
-	corner(box, 12)
-	stroke(box, owned and THEME.good or accent, owned and 2 or 1.5, owned and 0.2 or 0.35)
-	local stripe = new("Frame", { Size = UDim2.new(1, 0, 0, 6), BackgroundColor3 = accent, BorderSizePixel = 0, Parent = box })
-	corner(stripe, 3)
+	local color = STORE_COLORS[item.key] or accent
+	local box = new("Frame", { BackgroundColor3 = color, LayoutOrder = order, Parent = parent })
+	corner(box, 16)
+	shade(box)
+	stroke(box, INK, 3, 0)
+	-- icon bubble
+	local bubble = new("Frame", {
+		Position = UDim2.new(0, 10, 0, 10),
+		Size = UDim2.new(0, 48, 0, 48),
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		BackgroundTransparency = 0.25,
+		Parent = box,
+	})
+	corner(bubble, 24)
+	stroke(bubble, INK, 2.5, 0)
+	text({
+		Size = UDim2.fromScale(1, 1),
+		Text = ICONS[item.key] or "*",
+		TextXAlignment = Enum.TextXAlignment.Center,
+		NoOutline = true,
+		MaxTextSize = 30,
+		Parent = bubble,
+	})
 	if badge then
 		local tag = new("Frame", {
 			AnchorPoint = Vector2.new(1, 0),
-			Position = UDim2.new(1, -8, 0, 12),
-			Size = UDim2.new(0, 84, 0, 20),
-			BackgroundColor3 = accent,
+			Position = UDim2.new(1, -8, 0, -10),
+			Size = UDim2.new(0, 96, 0, 24),
+			BackgroundColor3 = THEME.danger,
+			Rotation = 4,
+			ZIndex = 3,
 			Parent = box,
 		})
-		corner(tag, 10)
+		corner(tag, 12)
+		shade(tag)
+		stroke(tag, INK, 2.5, 0)
 		text({
 			Size = UDim2.fromScale(1, 1),
 			Text = badge,
-			Font = Enum.Font.GothamBlack,
-			TextColor3 = THEME.bg,
 			TextXAlignment = Enum.TextXAlignment.Center,
-			MaxTextSize = 11,
+			MaxTextSize = 13,
+			ZIndex = 4,
 			Parent = tag,
 		})
 	end
 	text({
-		Position = UDim2.new(0, 10, 0, 14),
-		Size = UDim2.new(1, badge and -100 or -20, 0, 20),
+		Position = UDim2.new(0, 64, 0, 12),
+		Size = UDim2.new(1, -72, 0, 24),
 		Text = item.name,
-		Font = Enum.Font.GothamBlack,
-		TextColor3 = accent,
-		MaxTextSize = 16,
+		MaxTextSize = 18,
 		Parent = box,
 	})
 	text({
-		Position = UDim2.new(0, 10, 0, 38),
-		Size = UDim2.new(1, -20, 0, 50),
+		Position = UDim2.new(0, 64, 0, 38),
+		Size = UDim2.new(1, -72, 0, 18),
+		Text = owned and "OWNED" or "",
+		TextColor3 = THEME.gold,
+		MaxTextSize = 13,
+		Parent = box,
+	})
+	text({
+		Position = UDim2.new(0, 10, 0, 64),
+		Size = UDim2.new(1, -20, 0, 52),
 		Text = item.desc .. (extra or ""),
-		Font = Enum.Font.Gotham,
-		TextColor3 = THEME.text,
+		Font = Enum.Font.GothamBold,
 		TextWrapped = true,
 		TextYAlignment = Enum.TextYAlignment.Top,
 		MaxTextSize = 13,
@@ -2863,13 +3057,12 @@ local function storeCard(parent, order, item, owned, accent, extra, badge)
 	})
 	local b = button({
 		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -8),
-		Size = UDim2.new(1, -20, 0, 34),
+		Position = UDim2.new(0.5, 0, 1, -10),
+		Size = UDim2.new(1, -24, 0, 38),
 		Text = owned and "OWNED" or priceText(item),
 		RichText = true,
-		BackgroundColor3 = owned and Color3.fromRGB(60, 65, 75) or Color3.fromRGB(40, 170, 90),
-		TextColor3 = owned and THEME.muted or THEME.text,
-		MaxTextSize = 16,
+		BackgroundColor3 = owned and Color3.fromRGB(150, 160, 180) or THEME.buy,
+		MaxTextSize = 20,
 		Parent = box,
 	})
 	b.MouseButton1Click:Connect(function()
@@ -2898,7 +3091,7 @@ local function renderStore()
 		Position = UDim2.new(0, 14, 0, 8),
 		Size = UDim2.new(1, -190, 0, 20),
 		Text = state.groupClaimed and "THANKS FOR JOINING THE CREW!" or "FREE: JOIN OUR GROUP",
-		Font = Enum.Font.GothamBlack,
+		Font = Enum.Font.FredokaOne,
 		TextColor3 = THEME.good,
 		MaxTextSize = 17,
 		Parent = groupCard,
@@ -2907,7 +3100,7 @@ local function renderStore()
 		Position = UDim2.new(0, 14, 0, 32),
 		Size = UDim2.new(1, -190, 0, 30),
 		Text = "Join the group (on the game page), then claim: " .. table.concat(rewards, ", ") .. ".",
-		Font = Enum.Font.Gotham,
+		Font = Enum.Font.GothamBold,
 		TextWrapped = true,
 		MaxTextSize = 13,
 		Parent = groupCard,
@@ -2916,7 +3109,7 @@ local function renderStore()
 		Position = UDim2.new(0, 14, 0, 66),
 		Size = UDim2.new(1, -190, 0, 16),
 		Text = "Enjoying Deep Sea Salvage? Leave a like - it really helps!",
-		Font = Enum.Font.GothamMedium,
+		Font = Enum.Font.GothamBold,
 		TextColor3 = THEME.muted,
 		MaxTextSize = 12,
 		Parent = groupCard,
@@ -2937,7 +3130,7 @@ local function renderStore()
 	end)
 
 	sectionTitle("BOOSTS  (buy again to add more time)", 1)
-	local boosts = gridSection(2, UDim2.new(0.25, -6, 0, 150))
+	local boosts = gridSection(2, UDim2.new(0.25, -6, 0, 176))
 	for i, product in ipairs(Config.Products) do
 		if product.boost then
 			local left = boostTimeLeft(product.boost)
@@ -2947,7 +3140,7 @@ local function renderStore()
 	end
 
 	sectionTitle("REBIRTH FASTER", 3)
-	local rebirthGrid = gridSection(4, UDim2.new(0.5, -6, 0, 150))
+	local rebirthGrid = gridSection(4, UDim2.new(0.5, -6, 0, 176))
 	for i, product in ipairs(Config.Products) do
 		if product.levels or product.rebirth then
 			storeCard(rebirthGrid, i, product, false, STORE_ACCENTS.rebirth)
@@ -2955,7 +3148,7 @@ local function renderStore()
 	end
 
 	sectionTitle("SEASON PASSES  -  " .. Config.Season.name, 5)
-	local seasonGrid = gridSection(6, UDim2.new(0.5, -6, 0, 150))
+	local seasonGrid = gridSection(6, UDim2.new(0.5, -6, 0, 176))
 	for i, product in ipairs(Config.Products) do
 		if product.seasonPass then
 			local owned = (product.seasonPass == "premium" and (state.season.premium or state.season.mystic))
@@ -2972,7 +3165,7 @@ local function renderStore()
 	end
 
 	sectionTitle("GAME PASSES  (yours forever)", 7)
-	local passes = gridSection(8, UDim2.new(0.333, -6, 0, 150))
+	local passes = gridSection(8, UDim2.new(0.333, -6, 0, 176))
 	for i, pass in ipairs(Config.GamePasses) do
 		storeCard(passes, i, pass, state.passes[pass.key] == true, STORE_ACCENTS.pass)
 	end
@@ -3010,7 +3203,7 @@ for _, which in ipairs({ "coins", "luck", "xp" }) do
 	boostLabels[which] = text({
 		Size = UDim2.new(1, -16, 1, -6),
 		Position = UDim2.new(0, 8, 0, 3),
-		Font = Enum.Font.GothamBlack,
+		Font = Enum.Font.FredokaOne,
 		TextColor3 = THEME.good,
 		TextXAlignment = Enum.TextXAlignment.Center,
 		MaxTextSize = 15,
@@ -3035,7 +3228,7 @@ stroke(tutorialCard, THEME.gold, 2.5, 0)
 local tutorialTitle = text({
 	Position = UDim2.new(0, 12, 0, 8),
 	Size = UDim2.new(1, -70, 0, 16),
-	Font = Enum.Font.GothamBlack,
+	Font = Enum.Font.FredokaOne,
 	TextColor3 = THEME.gold,
 	MaxTextSize = 14,
 	Parent = tutorialCard,
@@ -3043,14 +3236,14 @@ local tutorialTitle = text({
 local tutorialStep = text({
 	Position = UDim2.new(0, 12, 0, 26),
 	Size = UDim2.new(1, -24, 0, 20),
-	Font = Enum.Font.GothamBlack,
+	Font = Enum.Font.FredokaOne,
 	MaxTextSize = 17,
 	Parent = tutorialCard,
 })
 local tutorialHint = text({
 	Position = UDim2.new(0, 12, 0, 48),
 	Size = UDim2.new(1, -24, 0, 30),
-	Font = Enum.Font.Gotham,
+	Font = Enum.Font.GothamBold,
 	TextColor3 = THEME.muted,
 	TextWrapped = true,
 	TextYAlignment = Enum.TextYAlignment.Top,
@@ -3069,7 +3262,7 @@ corner(tutorialBar, 4)
 local tutorialReward = text({
 	Position = UDim2.new(0, 12, 0, 96),
 	Size = UDim2.new(1, -24, 0, 16),
-	Font = Enum.Font.GothamBold,
+	Font = Enum.Font.FredokaOne,
 	TextColor3 = THEME.good,
 	MaxTextSize = 12,
 	Parent = tutorialCard,
@@ -3081,7 +3274,7 @@ local skipButton = button({
 	Text = "skip",
 	BackgroundColor3 = Color3.fromRGB(45, 50, 65),
 	TextColor3 = THEME.muted,
-	Font = Enum.Font.GothamBold,
+	Font = Enum.Font.FredokaOne,
 	MaxTextSize = 11,
 	Parent = tutorialCard,
 })
@@ -3218,7 +3411,7 @@ local weatherStroke = stroke(weatherBanner, THEME.accent, 2.5, 0)
 local weatherTitle = text({
 	Position = UDim2.new(0, 10, 0, 3),
 	Size = UDim2.new(1, -20, 0, 20),
-	Font = Enum.Font.GothamBlack,
+	Font = Enum.Font.FredokaOne,
 	TextXAlignment = Enum.TextXAlignment.Center,
 	MaxTextSize = 17,
 	Parent = weatherBanner,
@@ -3226,7 +3419,7 @@ local weatherTitle = text({
 local weatherDesc = text({
 	Position = UDim2.new(0, 10, 0, 23),
 	Size = UDim2.new(1, -20, 0, 15),
-	Font = Enum.Font.Gotham,
+	Font = Enum.Font.GothamBold,
 	TextXAlignment = Enum.TextXAlignment.Center,
 	MaxTextSize = 12,
 	Parent = weatherBanner,
@@ -3359,6 +3552,7 @@ local function renderPanel(force)
 	local scroll = content.CanvasPosition
 	clearContent()
 	renderers[currentPanel]()
+	polish(content)
 	task.defer(function()
 		content.CanvasPosition = scroll
 	end)
@@ -3368,7 +3562,14 @@ renderPanelRef = function()
 	renderPanel(true)
 end
 
-local function openPanel(name)
+local openPanel
+openStoreRef = function()
+	if currentPanel ~= "Store" then
+		openPanel("Store")
+	end
+end
+
+openPanel = function(name)
 	if currentPanel == name then
 		currentPanel = nil
 		panel.Visible = false
@@ -3391,27 +3592,50 @@ end)
 ---------------------------------------------------------------------------
 -- SIDE MENU
 ---------------------------------------------------------------------------
+-- Round icon buttons in a 2-column grid with a label under each one
 local function makeMenu(items, onRight)
 	local buttons = {}
+	local rows = math.ceil(#items / 2)
 	local holder = new("Frame", {
 		AnchorPoint = Vector2.new(onRight and 1 or 0, 0.5),
-		Position = UDim2.new(onRight and 1 or 0, onRight and -12 or 12, 0.5, 45), -- a bit low so Roblox's chat box never covers it
-		Size = UDim2.new(0, 108, 0, #items * 46 + (#items - 1) * 7),
+		Position = UDim2.new(onRight and 1 or 0, onRight and -10 or 10, 0.5, 45), -- a bit low so Roblox's chat box never covers it
+		Size = UDim2.new(0, 2 * 66 + 6, 0, rows * 86 + (rows - 1) * 4),
 		BackgroundTransparency = 1,
 		Parent = gui,
 	})
-	new("UIListLayout", { Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder, Parent = holder })
+	new("UIGridLayout", {
+		CellSize = UDim2.new(0, 66, 0, 86),
+		CellPadding = UDim2.new(0, 6, 0, 4),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = holder,
+	})
 	for i, item in ipairs(items) do
+		local cell = new("Frame", { BackgroundTransparency = 1, LayoutOrder = i, Parent = holder })
 		local b = button({
-			Size = UDim2.new(1, 0, 0, 46),
-			Text = item.label,
-			LayoutOrder = i,
-			BackgroundColor3 = THEME.bg,
-			TextColor3 = item.color,
-			MaxTextSize = 17,
-			Parent = holder,
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.new(0.5, 0, 0, 0),
+			Size = UDim2.new(0, 60, 0, 60),
+			Text = ICONS[item.label] or "?",
+			BackgroundColor3 = item.color,
+			MaxTextSize = 32,
+			Parent = cell,
 		})
-		stroke(b, item.color, 2, 0.15)
+		corner(b, 30)
+		stroke(b, INK, 3, 0)
+		local emojiOutline = b.Label:FindFirstChildOfClass("UIStroke")
+		if emojiOutline then
+			emojiOutline.Enabled = false -- emoji look cleaner without an outline
+		end
+		text({
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.new(0.5, 0, 0, 62),
+			Size = UDim2.new(1, 4, 0, 20),
+			Text = item.label == "MY BAY" and "Home" or (item.label:sub(1, 1) .. item.label:sub(2):lower()),
+			TextXAlignment = Enum.TextXAlignment.Center,
+			MaxTextSize = 15,
+			Parent = cell,
+		})
+		b.Name = item.label
 		b.MouseButton1Click:Connect(item.action)
 		buttons[item.label] = b
 	end
@@ -3419,9 +3643,9 @@ local function makeMenu(items, onRight)
 end
 
 local leftMenu, leftButtons = makeMenu({
-	{ label = "DAILY", color = THEME.gold, action = function() toggleDaily() end },
-	{ label = "FLEET", color = THEME.accent, action = function() openPanel("Fleet") end },
-	{ label = "SHOP", color = Color3.fromRGB(80, 200, 110), action = function() openPanel("Shop") end },
+	{ label = "DAILY", color = Color3.fromRGB(255, 200, 60), action = function() toggleDaily() end },
+	{ label = "FLEET", color = Color3.fromRGB(70, 190, 240), action = function() openPanel("Fleet") end },
+	{ label = "SHOP", color = Color3.fromRGB(90, 215, 100), action = function() openPanel("Shop") end },
 	{ label = "PETS", color = Color3.fromRGB(255, 130, 200), action = function() openPanel("Pets") end },
 	{ label = "LOGBOOK", color = Color3.fromRGB(165, 120, 255), action = function() openPanel("Logbook") end },
 	{ label = "QUESTS", color = Color3.fromRGB(120, 200, 255), action = function() openPanel("Quests") end },
@@ -3444,7 +3668,7 @@ local dailyDot = new("Frame", {
 	Parent = leftButtons.DAILY,
 })
 corner(dailyDot, 10)
-text({ Size = UDim2.fromScale(1, 1), Text = "!", Font = Enum.Font.GothamBlack, TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 3, Parent = dailyDot })
+text({ Size = UDim2.fromScale(1, 1), Text = "!", Font = Enum.Font.FredokaOne, TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 3, Parent = dailyDot })
 
 ---------------------------------------------------------------------------
 -- FIT ANY SCREEN: shrink the HUD on small screens (phones) so nothing overlaps
@@ -3500,8 +3724,9 @@ local function pulseMenus()
 	local pulse = 2 + (math.sin(os.clock() * 6) + 1) * 1.5
 	for label, s in pairs(menuStrokes) do
 		if s then
-			s.Thickness = (label == wanted) and pulse or 2
-			s.Transparency = (label == wanted) and 0 or 0.15
+			s.Thickness = (label == wanted) and (pulse + 1) or 3
+			s.Color = (label == wanted) and THEME.gold or INK
+			s.Transparency = 0
 		end
 	end
 end

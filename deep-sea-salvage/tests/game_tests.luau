@@ -1306,7 +1306,7 @@ check(#clientErrors == 0, "no client errors after start: " .. (clientErrors[1] o
 local function findButton(label)
 	for i = #created, 1, -1 do
 		local obj = created[i]
-		if obj.ClassName == "TextButton" and obj.Text == label and not rawget(obj, "__destroyed") then
+		if obj.ClassName == "TextButton" and (obj.Text == label or rawget(obj, "__props").Name == label) and not rawget(obj, "__destroyed") then
 			return obj
 		end
 	end
@@ -1344,7 +1344,8 @@ for _, name in ipairs(menus) do
 		for round = 1, 2 do
 			local snapshot = {}
 			for _, obj in ipairs(created) do
-				if obj.ClassName == "TextButton" and isLive(obj) and not table.find(menus, obj.Text) and obj.Text ~= "MY BAY"
+				local nm = rawget(obj, "__props").Name
+				if obj.ClassName == "TextButton" and isLive(obj) and not table.find(menus, nm) and nm ~= "MY BAY"
 					and obj.Text ~= "X" then
 					table.insert(snapshot, obj)
 				end

@@ -99,7 +99,7 @@ local function addBillboard(adornee, text, color, offsetY, maxDistance, sizeX)
 	local label = Instance.new("TextLabel")
 	label.Size = UDim2.fromScale(1, 1)
 	label.BackgroundTransparency = 1
-	label.Font = Enum.Font.GothamBlack
+	label.Font = Enum.Font.FredokaOne
 	label.TextScaled = true
 	label.TextColor3 = color or Color3.new(1, 1, 1)
 	label.TextStrokeTransparency = 0.3
@@ -118,7 +118,7 @@ local function addSurfaceText(part, face, text, textColor, bgColor)
 	label.Size = UDim2.fromScale(1, 1)
 	label.BackgroundColor3 = bgColor or Color3.fromRGB(20, 40, 60)
 	label.BackgroundTransparency = bgColor and 0 or 1
-	label.Font = Enum.Font.GothamBlack
+	label.Font = Enum.Font.FredokaOne
 	label.TextScaled = true
 	label.TextColor3 = textColor
 	label.Text = text
@@ -575,7 +575,7 @@ local function buildBay(index)
 		statusLabel.Size = UDim2.fromScale(1, 0.5)
 		statusLabel.Position = UDim2.fromScale(0, 0.5)
 		statusLabel.BackgroundTransparency = 1
-		statusLabel.Font = Enum.Font.GothamBold
+		statusLabel.Font = Enum.Font.FredokaOne
 		statusLabel.TextScaled = true
 		statusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 		statusLabel.TextStrokeTransparency = 0.3
@@ -3186,7 +3186,7 @@ local function spawnEnemy(arena, enemyId)
 	local nameLabel = Instance.new("TextLabel")
 	nameLabel.Size = UDim2.new(1, 0, 0.55, 0)
 	nameLabel.BackgroundTransparency = 1
-	nameLabel.Font = Enum.Font.GothamBlack
+	nameLabel.Font = Enum.Font.FredokaOne
 	nameLabel.TextScaled = true
 	nameLabel.TextColor3 = def.boss and Color3.fromRGB(255, 80, 80) or Color3.fromRGB(255, 255, 255)
 	nameLabel.TextStrokeTransparency = 0.3
@@ -3279,7 +3279,7 @@ local function damageNumber(position, amount, color)
 	local label = Instance.new("TextLabel")
 	label.Size = UDim2.fromScale(1, 1)
 	label.BackgroundTransparency = 1
-	label.Font = Enum.Font.GothamBlack
+	label.Font = Enum.Font.FredokaOne
 	label.TextScaled = true
 	label.TextColor3 = color
 	label.TextStrokeTransparency = 0.2
@@ -4281,7 +4281,7 @@ local function buildBoard(lb, position)
 	local title = Instance.new("TextLabel")
 	title.Size = UDim2.new(1, 0, 0.13, 0)
 	title.BackgroundColor3 = lb.color
-	title.Font = Enum.Font.GothamBlack
+	title.Font = Enum.Font.FredokaOne
 	title.TextScaled = true
 	title.TextColor3 = Color3.fromRGB(14, 32, 52)
 	title.Text = lb.title
@@ -4293,7 +4293,7 @@ local function buildBoard(lb, position)
 		row.Position = UDim2.new(0.03, 0, 0.15 + (i - 1) * 0.085, 0)
 		row.BackgroundTransparency = i % 2 == 0 and 1 or 0.85
 		row.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-		row.Font = i <= 3 and Enum.Font.GothamBlack or Enum.Font.GothamBold
+		row.Font = i <= 3 and Enum.Font.FredokaOne or Enum.Font.FredokaOne
 		row.TextScaled = true
 		row.TextXAlignment = Enum.TextXAlignment.Left
 		row.TextColor3 = i == 1 and Color3.fromRGB(255, 205, 80) or (i == 2 and Color3.fromRGB(220, 225, 235)
