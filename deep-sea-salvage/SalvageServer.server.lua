@@ -3678,8 +3678,9 @@ end
 ---------------------------------------------------------------------------
 -- PET ABILITIES: mutated pets fight for you in the hunting grounds
 ---------------------------------------------------------------------------
-local PET_SLOTS = { Vector3.new(-3.2, 0.4, 2.5), Vector3.new(3.2, 0.4, 2.5), Vector3.new(0, 1.3, 4.2),
-	Vector3.new(-5, 0.8, 4.5), Vector3.new(5, 0.8, 4.5) }
+-- matches the client's follower slots (abilities fire from where the pet is drawn)
+local PET_SLOTS = { Vector3.new(-4.2, 0.4, 3), Vector3.new(4.2, 0.4, 3), Vector3.new(0, 1.6, 5.6),
+	Vector3.new(-6.5, 1.0, 6), Vector3.new(6.5, 1.0, 6) }
 
 -- jagged lightning-style bolt made of short neon pieces
 local function bolt(from, to, color, width, jag)

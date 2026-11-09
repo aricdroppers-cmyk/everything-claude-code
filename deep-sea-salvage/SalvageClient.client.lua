@@ -1322,7 +1322,10 @@ end)
 ---------------------------------------------------------------------------
 local petFolder = new("Folder", { Name = "SalvagePets_" .. player.UserId, Parent = workspace })
 local followers = {}
-local SLOT_OFFSETS = { Vector3.new(-3.2, 0, 2.5), Vector3.new(3.2, 0, 2.5), Vector3.new(0, 0.9, 4.2) }
+-- pets float beside and behind you; spaced so even long pets (eels, sharks) don't clip into you or each other
+local FOLLOWER_SCALE = 0.65
+local SLOT_OFFSETS = { Vector3.new(-4.2, 0, 3), Vector3.new(4.2, 0, 3), Vector3.new(0, 1.2, 5.6),
+	Vector3.new(-6.5, 0.6, 6), Vector3.new(6.5, 0.6, 6) }
 
 local function refreshFollowers(p)
 	local key = p:GetAttribute("EquippedPets") or ""
@@ -1341,7 +1344,7 @@ local function refreshFollowers(p)
 		local petId, mutationId = string.match(piece, "^([^:]+):?(.*)$")
 		local def = Config.GetPet(petId)
 		if def then
-			local model = buildPet(mutatedDef(def, mutationId ~= "" and mutationId or nil), 0.9)
+			local model = buildPet(mutatedDef(def, mutationId ~= "" and mutationId or nil), FOLLOWER_SCALE)
 			model.Parent = petFolder
 			table.insert(entry.models, model)
 		end
