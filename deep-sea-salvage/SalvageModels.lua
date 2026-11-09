@@ -137,24 +137,32 @@ function Models.Build(def, scale)
 
 	local shape = def.shape
 	if shape == "fish" and def.fin then
-		------------------------------------------------------------------ shark
-		local back, belly = darker(color, 0.1), lighter(color, 0.75)
-		E(V(1.0, 1.05, 2.8), C(0, 0, 0), color)
-		E(V(0.85, 0.55, 2.4), C(0, -0.25, -0.05), belly)
-		E(V(0.7, 0.7, 1.3), C(0, 0.05, -1.3), color) -- snout
-		E(V(0.55, 0.3, 0.9), C(0, -0.2, -1.45), belly)
-		E(V(0.45, 0.55, 1.3), C(0, 0.05, 1.5), back) -- tail stock
-		E(V(0.14, 1.3, 0.85), C(0, 0.85, 0.0) * A(-30, 0, 0), back) -- dorsal fin
-		E(V(0.12, 1.45, 0.5), C(0, 0.6, 2.15) * A(-42, 0, 0), back) -- tail upper lobe
-		E(V(0.12, 0.85, 0.42), C(0, -0.35, 2.05) * A(38, 0, 0), back)
+		------------------------------------------------------------------ shark: torpedo body, swept fins, crescent tail
+		local back, belly = darker(color, 0.12), lighter(color, 0.75)
+		-- a few big overlapping ellipsoids give one smooth torpedo
+		E(V(1.05, 1.1, 3.0), C(0, 0, -0.15), color) -- main body
+		E(V(0.78, 0.78, 1.5), C(0, -0.02, -1.4), color) -- head taper
+		E(V(0.44, 0.32, 0.6), C(0, -0.05, -1.92), color) -- pointed snout
+		E(V(0.66, 0.7, 2.0), C(0, 0.04, 1.2), color) -- rear taper
+		E(V(0.3, 0.36, 1.0), C(0, 0.05, 2.1), color) -- tail stock
+		E(V(0.9, 0.62, 3.5), C(0, -0.24, -0.25), belly) -- white belly (countershading)
+		-- fins sweep BACK toward the tail
+		-- tall triangular dorsal fin: stacked, shrinking, leaning back
+		E(V(0.08, 1.45, 0.42), C(0, 0.95, 0.12) * A(35, 0, 0), back) -- swept blade
+		E(V(0.09, 0.6, 1.0), C(0, 0.6, 0.0), back) -- wide base
+		E(V(0.07, 0.7, 0.45), C(0, 0.85, 0.32) * A(15, 0, 0), back) -- fills the back edge
+		E(V(0.06, 0.4, 0.32), C(0, 0.5, 1.45) * A(40, 0, 0), back) -- small second dorsal
+		E(V(0.08, 1.55, 0.38), C(0, 0.5, 2.85) * A(52, 0, 0), back) -- crescent tail, upper lobe
+		E(V(0.08, 0.9, 0.34), C(0, -0.25, 2.62) * A(-48, 0, 0), back) -- lower lobe
 		for _, side in ipairs({ -1, 1 }) do
-			E(V(1.35, 0.12, 0.6), C(side * 0.8, -0.35, -0.3) * A(0, side * -20, side * -25), back) -- pectoral
-			for k = 0, 2 do
-				B(V(0.04, 0.38, 0.06), C(side * 0.47, 0.0, -0.7 + k * 0.16), darker(color, 0.35)) -- gill slits
+			E(V(1.45, 0.07, 0.48), C(side * 0.82, -0.38, -0.35) * A(0, side * 40, side * -22), back) -- long swept pectoral fins
+			E(V(0.45, 0.06, 0.25), C(side * 0.3, -0.42, 1.0) * A(0, side * 35, side * -25), back) -- pelvic fins
+			for k = 0, 4 do
+				E(V(0.03, 0.36 - k * 0.03, 0.05), C(side * 0.44, 0.02, -1.15 + k * 0.12) * A(0, 0, side * 8), darker(color, 0.35)) -- 5 gill slits
 			end
-			eye(side * 0.33, 0.18, -1.35, 0.2, side * 0.8, -0.6)
+			eye(side * 0.34, 0.12, -1.5, 0.17, side * 0.9, -0.45, Color3.fromRGB(15, 15, 20))
+			E(V(0.06, 0.05, 0.55), C(side * 0.18, -0.3, -1.5) * A(0, side * 25, 0), darker(color, 0.5)) -- curved underslung mouth
 		end
-		E(V(0.5, 0.06, 0.4), C(0, -0.32, -1.55), darker(color, 0.5)) -- mouth line
 	elseif shape == "fish" then
 		------------------------------------------------------------------ fish
 		local round = def.round
@@ -243,22 +251,37 @@ function Models.Build(def, scale)
 			eye(side * 0.22, 0.76, -0.53, 0.22, side * 0.3, -1)
 		end
 	elseif shape == "star" then
-		------------------------------------------------------------------ starfish (no eyes, like the real thing)
-		E(V(0.85, 0.85, 0.42), C(0, 0, 0), color)
+		------------------------------------------------------------------ starfish: flat body, 5 tapered arms, rows of bumps (no eyes, like the real thing)
+		local top, bump = color, lighter(accent, 0.15)
+		E(V(1.15, 1.15, 0.46), C(0, 0, 0), top) -- central disc
 		for k = 0, 4 do
-			local a = math.rad(k * 72)
-			local pts = {}
-			for i = 0, 4 do
-				local r = 0.15 + i * 0.32
-				table.insert(pts, Vector3.new(math.sin(a) * r, math.cos(a) * r, -0.012 * i * i))
+			local deg = k * 72 + 4 * math.sin(k * 1.7) -- tiny wobble so it looks natural
+			local a = math.rad(deg)
+			local dir = Vector3.new(math.sin(a), math.cos(a), 0)
+			local function at(r, z)
+				return CFrame.new((dir * r + Vector3.new(0, 0, z)) * s) * A(0, 0, -deg)
 			end
-			tube(pts, 0.62, 0.2, color)
-			for i = 1, 3 do
-				local r = 0.35 + i * 0.28
-				ball(model, 0.1 * s, C(math.sin(a) * r, math.cos(a) * r, -0.2), accent) -- bumps
+			E(V(0.78, 2.6, 0.38), at(0.98, 0), top) -- arm: one long ellipsoid tapers to a point
+			E(V(0.4, 2.3, 0.3), at(0.95, -0.06), lighter(top, 0.18)) -- raised ridge down the middle
+			E(V(0.12, 0.3, 0.12), at(2.18, -0.02) * A(-25, 0, 0), darker(top, 0.15)) -- tip curls up a little
+			for i = 1, 6 do
+				local r = 0.25 + i * 0.29
+				local u = (r - 0.98) / 1.3
+				local z = -0.19 * math.sqrt(math.max(0, 1 - u * u)) - 0.03
+				local w = 0.3 * math.sqrt(math.max(0, 1 - u * u)) -- arm half-width here
+				ball(model, (0.13 - i * 0.012) * s, at(r, z), bump) -- ridge bumps
+				if i <= 4 then
+					for _, side in ipairs({ -1, 1 }) do
+						ball(model, 0.07 * s, at(r, z * 0.7) * CFrame.new(side * w * 0.65 * s, 0, 0), bump) -- side rows
+					end
+				end
 			end
 		end
-		ball(model, 0.14 * s, C(0, 0, -0.22), darker(color, 0.3))
+		for k = 0, 4 do -- little ring of bumps round the middle
+			local a = math.rad(k * 72 + 36)
+			ball(model, 0.1 * s, C(math.sin(a) * 0.32, math.cos(a) * 0.32, -0.22), bump)
+		end
+		ball(model, 0.16 * s, C(0, 0, -0.24), darker(top, 0.25)) -- center
 	elseif shape == "turtle" then
 		------------------------------------------------------------------ sea turtle
 		local skin = accent

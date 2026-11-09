@@ -1396,7 +1396,9 @@ end)
 -- VIEWPORT PREVIEW (a little 3D window showing a pet)
 ---------------------------------------------------------------------------
 local function petViewport(parent, def, size, position, spin)
-	return modelViewport(parent, buildPet(def, 1), size, position, spin and "spin" or "sway", nil, def.shape == "eel" and 60 or nil)
+	-- long bodies (eels, dragons, sharks) look best from the side
+	local side = def.shape == "eel" or (def.shape == "fish" and def.fin)
+	return modelViewport(parent, buildPet(def, 1), size, position, spin and "spin" or "sway", nil, side and 60 or nil)
 end
 
 local function eggDrawing(parent, eggDef, size, position)
