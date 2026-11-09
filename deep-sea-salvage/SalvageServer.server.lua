@@ -468,6 +468,17 @@ local function buildBay(index)
 	for z = -30, 30, 30 do
 		lampPost(pierCF * CFrame.new(5.2, 0.5, z), folder)
 	end
+	-- side trim + rope rails along the pier
+	for _, x in ipairs({ -5.1, 5.1 }) do
+		makePart({ Size = Vector3.new(0.6, 0.7, 82), CFrame = pierCF * CFrame.new(x, 0.1, 0), Color = darkWood, Material = Enum.Material.Wood, Parent = folder })
+		for z = -40, 40, 10 do
+			makePart({ Size = Vector3.new(0.45, 3, 0.45), CFrame = pierCF * CFrame.new(x, 2, z), Color = darkWood, Material = Enum.Material.Wood, Parent = folder })
+		end
+		for z = -35, 35, 10 do
+			makePart({ Size = Vector3.new(0.18, 0.18, 10), CFrame = pierCF * CFrame.new(x, 3.1, z), Color = Color3.fromRGB(190, 160, 110),
+				Material = Enum.Material.Fabric, CanCollide = false, Parent = folder })
+		end
+	end
 
 	-- Bay platform
 	local bayCF = CFrame.lookAt(polar(150, angle, 3.5), polar(151, angle, 3.5))
@@ -493,17 +504,106 @@ local function buildBay(index)
 	lampPost(bayCF * CFrame.new(-28, 0.5, 10), folder)
 	lampPost(bayCF * CFrame.new(28, 0.5, 10), folder)
 
-	-- Barrels for decoration
-	for _, x in ipairs({ -26, -24, 25 }) do
-		makePart({
-			Shape = Enum.PartType.Cylinder,
-			Size = Vector3.new(2.4, 2, 2),
-			CFrame = bayCF * CFrame.new(x, 1.7, 7) * UPRIGHT,
-			Color = Color3.fromRGB(110, 70, 40),
-			Material = Enum.Material.Wood,
-			Parent = folder,
-		})
+	-- ===== dock dressing: makes the bay feel like a working salvage dock =====
+	local rope = Color3.fromRGB(190, 160, 110)
+	local iron = Color3.fromRGB(55, 58, 62)
+	local function deco(size, localCF, color, material, shape, collide)
+		return makePart({ Size = size, CFrame = bayCF * localCF, Color = color, Material = material, Shape = shape,
+			CanCollide = collide or false, Parent = folder })
 	end
+	local function ropeBetween(a, b, thickness)
+		local pa, pb = (bayCF * CFrame.new(a)).Position, (bayCF * CFrame.new(b)).Position
+		return makePart({ Size = Vector3.new(thickness or 0.18, thickness or 0.18, (pb - pa).Magnitude), CFrame = CFrame.lookAt((pa + pb) / 2, pb),
+			Color = rope, Material = Enum.Material.Fabric, CanCollide = false, Parent = folder })
+	end
+	-- edge trim beams + a few odd-coloured replacement planks
+	for _, z in ipairs({ -11.8, 11.8 }) do
+		deco(Vector3.new(60.8, 0.7, 0.8), CFrame.new(0, 0.1, z), darkWood, Enum.Material.Wood, nil, true)
+	end
+	for _, x in ipairs({ -30, 30 }) do
+		deco(Vector3.new(0.8, 0.7, 24), CFrame.new(x, 0.1, 0), darkWood, Enum.Material.Wood, nil, true)
+	end
+	for i, x in ipairs({ -21.3, -9.7, 2.6, 13.9, 23.1 }) do
+		local shade = (i % 2 == 0) and Color3.fromRGB(170, 128, 84) or Color3.fromRGB(128, 92, 58)
+		deco(Vector3.new(1.5, 0.08, 22.5), CFrame.new(x, 0.52, 0), shade, Enum.Material.WoodPlanks)
+	end
+	-- cross-bracing between the support posts
+	for _, x in ipairs({ -22, -7.5, 7.5, 22 }) do
+		deco(Vector3.new(0.5, 0.5, 15), CFrame.new(x, -4.5, -11) * CFrame.Angles(0, math.rad(90), math.rad(35)), darkWood, Enum.Material.Wood)
+	end
+	-- water side: iron bollards with mooring lines to each sub, and tyre bumpers
+	for i = 1, Config.MaxFleet do
+		local x = (i - 3) * 11
+		deco(Vector3.new(1.3, 1.2, 1.2), CFrame.new(x - 3, 1.15, -10.9) * UPRIGHT, iron, Enum.Material.CorrodedMetal, Enum.PartType.Cylinder, true)
+		deco(Vector3.new(0.35, 1.6, 1.6), CFrame.new(x - 3, 1.9, -10.9) * UPRIGHT, iron, Enum.Material.CorrodedMetal, Enum.PartType.Cylinder)
+		ropeBetween(Vector3.new(x - 3, 1.5, -10.9), Vector3.new(x - 1.2, -2.2, -15.5), 0.16)
+		deco(Vector3.new(0.7, 2.2, 2.2), CFrame.new(x + 2.6, -0.5, -12.3) * CFrame.Angles(0, math.rad(90), 0), Color3.fromRGB(32, 32, 35), Enum.Material.Rubber, Enum.PartType.Cylinder)
+		deco(Vector3.new(0.72, 1.0, 1.0), CFrame.new(x + 2.6, -0.5, -12.3) * CFrame.Angles(0, math.rad(90), 0), darkWood, Enum.Material.Wood, Enum.PartType.Cylinder)
+	end
+	-- island side: rope railing with warm hanging bulbs (gap for the entrance arch)
+	local railX = { -29.5, -22, -14.5, -8, 8, 14.5, 22, 29.5 }
+	for _, x in ipairs(railX) do
+		deco(Vector3.new(0.5, 3.4, 0.5), CFrame.new(x, 2.2, 11.6), darkWood, Enum.Material.Wood, nil, true)
+		deco(Vector3.new(0.7, 0.3, 0.7), CFrame.new(x, 4.0, 11.6), darkWood, Enum.Material.Wood)
+	end
+	for k = 1, #railX - 1 do
+		local a, b = railX[k], railX[k + 1]
+		if not (a == -8 and b == 8) then
+			ropeBetween(Vector3.new(a, 3.6, 11.6), Vector3.new((a + b) / 2, 3.0, 11.6))
+			ropeBetween(Vector3.new((a + b) / 2, 3.0, 11.6), Vector3.new(b, 3.6, 11.6))
+			local bulb = deco(Vector3.new(0.45, 0.45, 0.45), CFrame.new((a + b) / 2, 2.65, 11.6), Color3.fromRGB(255, 214, 140), Enum.Material.Neon, Enum.PartType.Ball)
+			local light = Instance.new("PointLight")
+			light.Color = Color3.fromRGB(255, 200, 130)
+			light.Range = 9
+			light.Brightness = 0.9
+			light.Parent = bulb
+		end
+	end
+	-- barrels with iron bands
+	for _, spot in ipairs({ { -26.5, 6.5 }, { -24.2, 7.4 }, { -25.4, 4.6 }, { 26.8, 7 } }) do
+		local cf = CFrame.new(spot[1], 1.75, spot[2])
+		deco(Vector3.new(2.5, 2.1, 2.1), cf * UPRIGHT, Color3.fromRGB(122, 78, 44), Enum.Material.Wood, Enum.PartType.Cylinder, true)
+		for _, y in ipairs({ -0.85, 0.85 }) do
+			deco(Vector3.new(0.18, 2.18, 2.18), cf * CFrame.new(0, y, 0) * UPRIGHT, iron, Enum.Material.Metal, Enum.PartType.Cylinder)
+		end
+		deco(Vector3.new(0.05, 1.7, 1.7), cf * CFrame.new(0, 1.26, 0) * UPRIGHT, Color3.fromRGB(95, 60, 34), Enum.Material.Wood, Enum.PartType.Cylinder)
+	end
+	-- stacked cargo crates with dark frames
+	for _, c in ipairs({ { -18.5, 8, 0, 0 }, { -16, 8.4, 0, 12 }, { -17.2, 8.1, 2.4, -8 } }) do
+		local cf = CFrame.new(c[1], 1.7 + c[3], c[2]) * CFrame.Angles(0, math.rad(c[4]), 0)
+		deco(Vector3.new(2.4, 2.4, 2.4), cf, Color3.fromRGB(176, 132, 82), Enum.Material.WoodPlanks, nil, true)
+		for _, e in ipairs({ { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 } }) do
+			deco(Vector3.new(0.3, 2.5, 0.3), cf * CFrame.new(e[1] * 1.1, 0, e[2] * 1.1), darkWood, Enum.Material.Wood)
+		end
+		deco(Vector3.new(2.5, 0.3, 2.5), cf * CFrame.new(0, 1.1, 0), darkWood, Enum.Material.Wood)
+	end
+	-- coiled rope
+	for k = 0, 2 do
+		deco(Vector3.new(0.3, 2.4 - k * 0.5, 2.4 - k * 0.5), CFrame.new(19.5, 0.65 + k * 0.28, 7.5) * UPRIGHT, k % 2 == 0 and rope or Color3.fromRGB(160, 130, 85),
+			Enum.Material.Fabric, Enum.PartType.Cylinder)
+	end
+	-- fishing net hanging over the railing
+	deco(Vector3.new(6, 2.6, 0.12), CFrame.new(-18.2, 2.4, 11.95), Color3.fromRGB(70, 120, 90), Enum.Material.Fabric).Transparency = 0.35
+	for _, x in ipairs({ -20.5, -18.2, -15.9 }) do
+		deco(Vector3.new(0.5, 0.5, 0.5), CFrame.new(x, 1.3, 12.05), Color3.fromRGB(240, 120, 40), Enum.Material.SmoothPlastic, Enum.PartType.Ball) -- floats
+	end
+	-- life rings on the arch posts
+	for _, x in ipairs({ -7, 7 }) do
+		local cf = CFrame.new(x, 5.5, 11.6) * CFrame.Angles(0, math.rad(90), 0)
+		deco(Vector3.new(0.4, 2.2, 2.2), cf, Color3.fromRGB(240, 90, 50), Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+		for _, r in ipairs({ 0, 90 }) do
+			deco(Vector3.new(0.42, 2.22, 0.45), cf * CFrame.Angles(math.rad(r), 0, 0), Color3.fromRGB(245, 245, 245), Enum.Material.SmoothPlastic)
+		end
+		deco(Vector3.new(0.44, 1.1, 1.1), cf, darkWood, Enum.Material.Wood, Enum.PartType.Cylinder)
+	end
+	-- workbench with a toolbox
+	deco(Vector3.new(4.5, 0.35, 2), CFrame.new(24, 2.6, 2.5), Color3.fromRGB(140, 100, 62), Enum.Material.WoodPlanks, nil, true)
+	for _, e in ipairs({ { 2, 0.8 }, { 2, -0.8 }, { -2, 0.8 }, { -2, -0.8 } }) do
+		deco(Vector3.new(0.3, 2.1, 0.3), CFrame.new(24 + e[1], 1.45, 2.5 + e[2]), darkWood, Enum.Material.Wood)
+	end
+	deco(Vector3.new(1.6, 0.8, 0.8), CFrame.new(23.2, 3.2, 2.4), Color3.fromRGB(200, 45, 40), Enum.Material.Metal)
+	deco(Vector3.new(1.0, 0.12, 0.12), CFrame.new(23.2, 3.75, 2.4), iron, Enum.Material.Metal)
+	deco(Vector3.new(1.2, 0.15, 0.25), CFrame.new(25, 2.85, 2.7) * CFrame.Angles(0, math.rad(30), 0), Color3.fromRGB(150, 155, 160), Enum.Material.Metal) -- wrench
 
 	-- Entrance arch with the owner's name
 	for _, x in ipairs({ -7, 7 }) do
@@ -550,6 +650,24 @@ local function buildBay(index)
 			Material = Enum.Material.Metal,
 			Parent = folder,
 		})
+		-- base plate with hazard stripes, a brace, a counterweight and a pulley
+		makePart({ Size = Vector3.new(2.6, 0.35, 2.6), CFrame = craneBase * CFrame.new(0, 0.18, 0), Color = Color3.fromRGB(70, 72, 76),
+			Material = Enum.Material.DiamondPlate, Parent = folder })
+		for k = -2, 2 do
+			makePart({ Size = Vector3.new(0.45, 0.06, 2.62), CFrame = craneBase * CFrame.new(k * 0.52, 0.38, 0) * CFrame.Angles(0, math.rad(35), 0),
+				Color = (k % 2 == 0) and Color3.fromRGB(245, 200, 40) or Color3.fromRGB(30, 30, 32), Material = Enum.Material.SmoothPlastic, CanCollide = false, Parent = folder })
+		end
+		local braceA = (craneBase * CFrame.new(0, 4.5, 0)).Position
+		local braceB = armStart:Lerp(armEnd, 0.45)
+		makePart({ Size = Vector3.new(0.35, 0.35, (braceB - braceA).Magnitude), CFrame = CFrame.lookAt((braceA + braceB) / 2, braceB),
+			Color = Color3.fromRGB(210, 150, 30), Material = Enum.Material.Metal, Parent = folder })
+		local back = armStart + (armStart - armEnd).Unit * 1.6
+		makePart({ Size = Vector3.new(0.5, 0.5, 1.8), CFrame = CFrame.lookAt((armStart + back) / 2, back), Color = Color3.fromRGB(230, 170, 40),
+			Material = Enum.Material.Metal, Parent = folder })
+		makePart({ Size = Vector3.new(1.3, 1.3, 1.3), CFrame = CFrame.new(back - Vector3.new(0, 0.8, 0)), Color = Color3.fromRGB(120, 120, 118),
+			Material = Enum.Material.Concrete, Parent = folder })
+		makePart({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.3, 1.1, 1.1), CFrame = CFrame.lookAt(armEnd, armEnd + (armEnd - armStart)) * CFrame.Angles(0, math.rad(90), 0),
+			Color = iron, Material = Enum.Material.Metal, CanCollide = false, Parent = folder })
 		local ropeTop = armEnd
 		local ropeBottom = armEnd - Vector3.new(0, 10.5, 0)
 		makePart({
@@ -560,20 +678,30 @@ local function buildBay(index)
 			CanCollide = false,
 			Parent = folder,
 		})
-		makePart({
-			Size = Vector3.new(0.8, 0.5, 0.8),
-			CFrame = CFrame.new(ropeBottom),
-			Color = Color3.fromRGB(60, 60, 65),
-			Material = Enum.Material.Metal,
-			CanCollide = false,
-			Parent = folder,
-		})
+		-- hook
+		makePart({ Size = Vector3.new(0.7, 0.45, 0.7), CFrame = CFrame.new(ropeBottom), Color = Color3.fromRGB(230, 170, 40),
+			Material = Enum.Material.Metal, CanCollide = false, Parent = folder })
+		makePart({ Size = Vector3.new(0.18, 0.7, 0.18), CFrame = CFrame.new(ropeBottom - Vector3.new(0, 0.5, 0)), Color = iron,
+			Material = Enum.Material.Metal, CanCollide = false, Parent = folder })
+		makePart({ Size = Vector3.new(0.18, 0.18, 0.6), CFrame = CFrame.new(ropeBottom - Vector3.new(0, 0.85, 0.2)), Color = iron,
+			Material = Enum.Material.Metal, CanCollide = false, Parent = folder })
 
-		local nameLabel, gui = addBillboard(post, "Empty Berth", Color3.fromRGB(200, 220, 230), 7.5, 90, 220)
-		nameLabel.Size = UDim2.fromScale(1, 0.5)
+		-- 3 short lines (name / zone / status) so neighbouring berths' labels don't collide
+		local nameLabel, gui = addBillboard(post, "Empty Berth", Color3.fromRGB(235, 245, 250), 7.5, 90, 150)
+		nameLabel.Size = UDim2.fromScale(1, 0.4)
+		local zoneLabel = Instance.new("TextLabel")
+		zoneLabel.Size = UDim2.fromScale(0.8, 0.24)
+		zoneLabel.Position = UDim2.fromScale(0.1, 0.4)
+		zoneLabel.BackgroundTransparency = 1
+		zoneLabel.Font = Enum.Font.FredokaOne
+		zoneLabel.TextScaled = true
+		zoneLabel.TextColor3 = Color3.fromRGB(150, 205, 225)
+		zoneLabel.TextStrokeTransparency = 0.4
+		zoneLabel.Text = ""
+		zoneLabel.Parent = gui
 		local statusLabel = Instance.new("TextLabel")
-		statusLabel.Size = UDim2.fromScale(1, 0.5)
-		statusLabel.Position = UDim2.fromScale(0, 0.5)
+		statusLabel.Size = UDim2.fromScale(1, 0.36)
+		statusLabel.Position = UDim2.fromScale(0, 0.64)
 		statusLabel.BackgroundTransparency = 1
 		statusLabel.Font = Enum.Font.FredokaOne
 		statusLabel.TextScaled = true
@@ -581,12 +709,13 @@ local function buildBay(index)
 		statusLabel.TextStrokeTransparency = 0.3
 		statusLabel.Text = ""
 		statusLabel.Parent = gui
-		gui.Size = UDim2.new(0, 220, 0, 60)
+		gui.Size = UDim2.new(0, 150, 0, 66)
 
 		berths[i] = {
 			subCF = bayCF * CFrame.new(x, -3.2, -17),
 			crateCF = bayCF * CFrame.new(x, 2, -6.5),
 			nameLabel = nameLabel,
+			zoneLabel = zoneLabel,
 			statusLabel = statusLabel,
 		}
 	end
@@ -3151,6 +3280,14 @@ local function spawnEnemy(arena, enemyId)
 	end
 	root.Anchored = true
 	local extents = model:GetExtentsSize()
+	if def.boss then
+		-- the boss must never blend into the dark Abyss: its own light (+ a glowing outline, below)
+		local glow = Instance.new("PointLight")
+		glow.Color = def.accent
+		glow.Range = 60
+		glow.Brightness = 3
+		glow.Parent = root
+	end
 
 	local hp = def.hp
 	if def.boss then
@@ -3211,6 +3348,14 @@ local function spawnEnemy(arena, enemyId)
 	highlight.FillTransparency = 0.4
 	highlight.OutlineTransparency = 1
 	highlight.Enabled = false
+	if def.boss then
+		-- always-on glowing outline; hits flash the fill instead of toggling it
+		highlight.Enabled = true
+		highlight.FillTransparency = 1
+		highlight.OutlineColor = def.accent
+		highlight.OutlineTransparency = 0.15
+		highlight.DepthMode = Enum.HighlightDepthMode.Occluded
+	end
 	highlight.Parent = model
 	enemy.highlight = highlight
 
@@ -3428,12 +3573,21 @@ local function damageEnemy(enemy, session, amount)
 	damageNumber(enemy.root.Position + Vector3.new(0, enemy.hover * 0.3, 0), math.floor(amount), Color3.fromRGB(255, 230, 120))
 	enemy.damageBy[session.player] = (enemy.damageBy[session.player] or 0) + amount
 	enemy.fill.Size = UDim2.fromScale(math.clamp(enemy.hp / enemy.maxHp, 0, 1), 1)
-	enemy.highlight.Enabled = true
-	task.delay(0.08, function()
-		if enemy.highlight.Parent then
-			enemy.highlight.Enabled = false
-		end
-	end)
+	if enemy.def.boss then
+		enemy.highlight.FillTransparency = 0.4 -- flash, but keep the glowing outline on
+		task.delay(0.08, function()
+			if enemy.highlight.Parent then
+				enemy.highlight.FillTransparency = 1
+			end
+		end)
+	else
+		enemy.highlight.Enabled = true
+		task.delay(0.08, function()
+			if enemy.highlight.Parent then
+				enemy.highlight.Enabled = false
+			end
+		end)
+	end
 	if enemy.hp <= 0 then
 		killEnemy(enemy)
 	end
@@ -4085,6 +4239,7 @@ local function releaseBay(bay)
 	end
 	for _, berth in ipairs(bay.berths) do
 		berth.nameLabel.Text = "Empty Berth"
+		berth.zoneLabel.Text = ""
 		berth.statusLabel.Text = ""
 	end
 end
@@ -4989,9 +5144,12 @@ while true do
 				end
 				local berth = session.bay.berths[i]
 				local subDef = Config.GetSub(session.data.subs[i].id)
-				local nameText = subDef.name .. "  |  " .. Config.Zones[entry.zone].name
-				if berth.nameLabel.Text ~= nameText then
-					berth.nameLabel.Text = nameText
+				if berth.nameLabel.Text ~= subDef.name then
+					berth.nameLabel.Text = subDef.name
+				end
+				local zoneText = Config.Zones[entry.zone].name
+				if berth.zoneLabel.Text ~= zoneText then
+					berth.zoneLabel.Text = zoneText
 				end
 				local text, color = statusText(entry)
 				if berth.statusLabel.Text ~= text then

@@ -390,7 +390,7 @@ function Models.Build(def, scale)
 	else
 		------------------------------------------------------------------ eel / sea dragon / elder serpent
 		local dragon = (def.rarity or 1) >= 4
-		local elder = (def.rarity or 1) >= 6 -- Mythic: raised neck, crown, glowing spine, wing fins, tail fluke
+		local elder = (def.rarity or 1) >= 6 or def.boss -- Mythic pet + the Leviathan boss: raised neck, crown, glowing spine, wing fins, tail fluke
 		local hy = elder and 1.2 or 0 -- head lift
 		local n = elder and 16 or 14
 		local pts = {}

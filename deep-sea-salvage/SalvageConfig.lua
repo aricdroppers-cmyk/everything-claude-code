@@ -373,7 +373,7 @@ Config.Enemies = {
 		color = rgb(20, 18, 28), accent = rgb(255, 40, 70), glow = true,
 		hp = 9000, damage = 70, reach = 12, speed = 12, coins = 2000, xp = 600, seasonXp = 30 },
 	{ id = "Leviathan", name = "THE LEVIATHAN", shape = "eel", scale = 14, height = 12, boss = true,
-		color = rgb(15, 60, 70), accent = rgb(60, 255, 230), glow = true,
+		color = rgb(28, 92, 108), accent = rgb(60, 255, 230), glow = true,
 		hp = 150000, hpPerPlayer = 60000, damage = 120, reach = 26, speed = 14, attackCooldown = 2.5,
 		coins = 50000, xp = 5000, seasonXp = 300, pearls = 20, eggChance = 0.5 },
 }
